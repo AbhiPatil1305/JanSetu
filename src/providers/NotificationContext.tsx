@@ -39,10 +39,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     refreshNotifications();
+
+    const interval = setInterval(() => {
+      refreshNotifications();
+    }, 20000);
+
     const unsubscribe = mockStorage.subscribe(() => {
       refreshNotifications();
     });
     return () => {
+      clearInterval(interval);
       unsubscribe();
     };
   }, [refreshNotifications]);

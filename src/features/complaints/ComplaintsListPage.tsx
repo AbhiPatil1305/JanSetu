@@ -476,8 +476,8 @@ export const ComplaintsListPage: React.FC = () => {
                       {/* Case ID + Flags */}
                       <td className="p-3.5 pl-5 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                            {c.id}
+                          <span className="font-mono font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200" title={c.id}>
+                            {c.details.referenceNumber || c.id}
                           </span>
                           {c.operationalFlags.includes('OVERDUE') && (
                             <span className="w-2 h-2 rounded-full bg-rose-600" title="Overdue Follow-up" />

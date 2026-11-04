@@ -20,7 +20,7 @@ export const PoliceStationsPage: React.FC = () => {
   const [editingStation, setEditingStation] = useState<PoliceStation | null>(null);
 
   // Form fields
-  const [departmentId, setDepartmentId] = useState('dept-1');
+  const [departmentId, setDepartmentId] = useState('');
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
@@ -37,6 +37,9 @@ export const PoliceStationsPage: React.FC = () => {
       ]);
       setStations(stns);
       setDepartments(depts);
+      if (depts.length > 0 && !departmentId) {
+        setDepartmentId(depts[0].id);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -48,7 +51,7 @@ export const PoliceStationsPage: React.FC = () => {
 
   const handleOpenAdd = () => {
     setEditingStation(null);
-    setDepartmentId('dept-1');
+    setDepartmentId(departments[0]?.id || '');
     setCode('');
     setName('');
     setLocation('');

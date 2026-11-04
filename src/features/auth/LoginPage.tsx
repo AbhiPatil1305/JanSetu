@@ -38,8 +38,19 @@ export const LoginPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!identifier.trim() || !password.trim()) {
+    let emailToSubmit = identifier.trim();
+    if (!emailToSubmit || !password.trim()) {
       setError('Please provide your Employee ID / Email and Password.');
+      return;
+    }
+
+    // Auto-resolve demo shortcuts to full email for backend validation
+    const lower = emailToSubmit.toLowerCase();
+    if (lower === 'admin') emailToSubmit = 'admin@jansetu.demo';
+    else if (lower === 'pa') emailToSubmit = 'pa@jansetu.demo';
+    else if (lower === 'officer') emailToSubmit = 'officer@jansetu.demo';
+    else if (!emailToSubmit.includes('@')) {
+      setError('Please enter a valid official email address (e.g. admin@jansetu.demo).');
       return;
     }
 
@@ -47,7 +58,7 @@ export const LoginPage: React.FC = () => {
     setError(null);
 
     try {
-      const loggedUser = await login(identifier, password);
+      const loggedUser = await login(emailToSubmit, password);
       showToast(
         'Authentication Successful',
         `Welcome, ${loggedUser.name} (${loggedUser.designation})`,

@@ -218,7 +218,7 @@ export const RegisterComplaintPage: React.FC = () => {
   const [stations, setStations] = useState<PoliceStation[]>([]);
   const [officers, setOfficers] = useState<User[]>([]);
 
-  const [selectedDeptId, setSelectedDeptId] = useState('dept-1');
+  const [selectedDeptId, setSelectedDeptId] = useState('');
   const [selectedStationId, setSelectedStationId] = useState('');
   const [selectedOfficerId, setSelectedOfficerId] = useState('');
   const [priority, setPriority] = useState<ComplaintPriority>('HIGH');
@@ -235,7 +235,12 @@ export const RegisterComplaintPage: React.FC = () => {
 
   // Load departments
   useEffect(() => {
-    departmentsService.getDepartments().then(setDepartments);
+    departmentsService.getDepartments().then((depts) => {
+      setDepartments(depts);
+      if (depts.length > 0) {
+        setSelectedDeptId(depts[0].id);
+      }
+    });
   }, []);
 
   // Update stations when department changes
@@ -243,8 +248,10 @@ export const RegisterComplaintPage: React.FC = () => {
     if (selectedDeptId) {
       departmentsService.getStations(selectedDeptId).then((stns) => {
         setStations(stns);
-        if (stns.length > 0 && !selectedStationId) {
+        if (stns.length > 0) {
           setSelectedStationId(stns[0].id);
+        } else {
+          setSelectedStationId('');
         }
       });
     } else {

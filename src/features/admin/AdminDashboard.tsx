@@ -4,7 +4,7 @@ import { useAuth } from '../../providers/AuthContext';
 import { useLanguage } from '../../providers/LanguageContext';
 import { reportsService, DashboardStats, DepartmentReportItem } from '../../services/api/reports.service';
 import { complaintsService } from '../../services/api/complaints.service';
-import { mockStorage } from '../../services/mock/mockStorage';
+import { auditService } from '../../services/api/audit.service';
 import { Complaint } from '../../types/complaint';
 import { AuditLog } from '../../types/audit';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/common/Card';
@@ -65,7 +65,7 @@ export const AdminDashboard: React.FC = () => {
           reportsService.getStatusDistribution(),
           reportsService.getDepartmentReports(),
           complaintsService.getComplaints(),
-          mockStorage.getAuditLogs(),
+          auditService.getAuditLogs(),
         ]);
 
         setStats(dashStats);

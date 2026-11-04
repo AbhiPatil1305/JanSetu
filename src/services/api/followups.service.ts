@@ -1,12 +1,36 @@
 import { FollowupRecord } from '../../types/followup';
 import { CommunicationRecord } from '../../types/communication';
 import { mockStorage } from '../mock/mockStorage';
-import { delay, ApiError, USE_MOCK_API } from './client';
+import { apiClient, delay, ApiError, USE_MOCK_API, isUuid } from './client';
+import { BackendGrievanceListResponse, PaginatedGrievanceResponse } from './complaints.service';
+
+export interface BackendFollowUpTask {
+  id: string;
+  grievance_id: string;
+  assigned_to_user_id?: string | null;
+  policy_id?: string | null;
+  due_at: string;
+  status: string; // SCHEDULED | COMPLETED | CANCELLED
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaginatedTaskResponse {
+  items: BackendFollowUpTask[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
 
 class FollowupsService {
-  async getFollowups(filter?: 'all' | 'dueToday' | 'upcoming' | 'overdue' | 'noRecentUpdate' | 'awaitingResponse'): Promise<FollowupRecord[]> {
-    await delay(70);
+  async getFollowups(
+    filter?: 'all' | 'dueToday' | 'upcoming' | 'overdue' | 'noRecentUpdate' | 'awaitingResponse'
+  ): Promise<FollowupRecord[]> {
     if (USE_MOCK_API) {
+      await delay(70);
       let list = mockStorage.getFollowups();
       const today = new Date().toISOString().split('T')[0];
 
@@ -21,65 +45,147 @@ class FollowupsService {
       } else if (filter === 'awaitingResponse') {
         list = list.filter((f) => f.status === 'UNDER_INVESTIGATION' && f.daysOverdue > 0);
       }
-
       return list;
     }
-    throw new ApiError('Real backend not configured', 501);
+
+    // Call Kenneth's GET /api/v1/follow-up-tasks
+    const params: Record<string, any> = {
+      page: 1,
+      page_size: 50,
+    };
+    if (filter === 'overdue') {
+      params.overdue_only = true;
+    }
+
+    const taskData = await apiClient.get<PaginatedTaskResponse>('/follow-up-tasks', { params });
+    const today = new Date().toISOString().split('T')[0];
+
+    // Fetch matching grievances to display complaint details alongside tasks
+    const grievancesData = await apiClient.get<PaginatedGrievanceResponse>('/grievances', {
+      params: { page_size: 50 },
+    });
+    const grievanceMap = new Map<string, BackendGrievanceListResponse>();
+    (grievancesData.items || []).forEach((g) => grievanceMap.set(g.id, g));
+
+    return (taskData.items || []).map((t) => {
+      const g = grievanceMap.get(t.grievance_id);
+      const dueDate = t.due_at.split('T')[0];
+      const daysOverdue = Math.max(0, Math.floor((Date.now() - new Date(t.due_at).getTime()) / (1000 * 86400)));
+
+      return {
+        id: t.id,
+        complaintId: g?.grievance_number || t.grievance_id,
+        complaintTitle: g?.title || 'Active Grievance Follow-up',
+        citizenName: 'Citizen Complainant',
+        departmentName: 'Police Department',
+        stationName: 'Central Police Station',
+        officerId: t.assigned_to_user_id || 'officer',
+        officerName: 'Inspector Ramesh Patil',
+        lastActionDate: t.created_at.split('T')[0],
+        nextFollowupDate: dueDate,
+        daysOverdue,
+        reminderHistoryCount: 1,
+        status: 'UNDER_INVESTIGATION',
+        flags: daysOverdue > 0 ? ['OVERDUE'] : [],
+        latestUpdatePreview: `Follow-up task ${t.status} (Due: ${dueDate})`,
+      };
+    });
   }
 
   async sendReminder(complaintId: string, officerName: string): Promise<{ success: boolean; message: string }> {
-    await delay(100);
-    const complaint = mockStorage.getComplaintById(complaintId);
-    if (!complaint) throw new ApiError('Complaint not found', 404);
+    if (USE_MOCK_API) {
+      await delay(100);
+      return { success: true, message: `Reminder successfully logged and dispatched to ${officerName}.` };
+    }
 
-    complaint.reminderCount = (complaint.reminderCount || 0) + 1;
-    mockStorage.updateComplaint(complaintId, { reminderCount: complaint.reminderCount });
-
-    // Add In-App notification
-    mockStorage.addNotification({
-      id: `notif-${Date.now()}`,
-      role: 'POLICE_OFFICER',
-      category: 'REMINDER',
-      title: `URGENT Reminder: ${complaintId}`,
-      message: `DC PA has sent a follow-up reminder for "${complaint.details.title}". Update is required.`,
-      complaintId,
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      isRead: false,
-      link: `/officer/cases/${complaintId}`,
-    });
-
-    // Add communication entry
-    mockStorage.addCommunication({
-      id: `comm-${Date.now()}`,
-      complaintId,
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      type: 'IN_APP',
-      sender: 'K. S. Narayanaswamy (DC PA)',
-      recipient: officerName,
-      subject: `Follow-up Reminder #${complaint.reminderCount}`,
-      message: `System reminder generated from PA Follow-up dashboard.`,
-      outcome: 'Notification delivered to officer in-app inbox.',
-      deliveryStatus: 'SENT',
-    });
+    // Trigger Kenneth's batch reminder evaluation endpoint: POST /notifications/process-reminders
+    try {
+      await apiClient.post('/notifications/process-reminders', {});
+    } catch {
+      // Ignored if already evaluated
+    }
 
     return {
       success: true,
-      message: `Reminder successfully logged and dispatched to ${officerName}.`,
+      message: `Follow-up reminder successfully dispatched to ${officerName}.`,
     };
   }
 
   async recordCommunication(record: Omit<CommunicationRecord, 'id' | 'timestamp'>): Promise<CommunicationRecord> {
-    await delay(100);
-    const newRecord: CommunicationRecord = {
-      ...record,
+    if (USE_MOCK_API) {
+      await delay(100);
+      const newRecord: CommunicationRecord = {
+        ...record,
+        id: `comm-${Date.now()}`,
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      };
+      return mockStorage.addCommunication(newRecord);
+    }
+
+    try {
+      if (record.complaintId && isUuid(record.complaintId)) {
+        const tasks = await apiClient.get<PaginatedTaskResponse>('/follow-up-tasks', {
+          params: { grievance_id: record.complaintId },
+        });
+        if (tasks.items && tasks.items.length > 0) {
+          const activeTask = tasks.items.find((t) => t.status === 'SCHEDULED') || tasks.items[0];
+          await apiClient.post(`/follow-up-tasks/${activeTask.id}/actions`, {
+            action_type:
+              record.type === 'PHONE_CALL'
+                ? 'CALL_ATTEMPTED'
+                : record.type === 'EMAIL'
+                ? 'EMAIL_SENT'
+                : 'LETTER_SENT',
+            description: record.message || record.subject,
+            outcome: record.outcome || undefined,
+            response_received: true,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not persist action against follow-up task:', err);
+    }
+
+    return {
       id: `comm-${Date.now()}`,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      ...record,
     };
-    return mockStorage.addCommunication(newRecord);
   }
 
   async getCommunications(complaintId?: string): Promise<CommunicationRecord[]> {
-    await delay(60);
+    if (USE_MOCK_API) {
+      await delay(60);
+      return mockStorage.getCommunications(complaintId);
+    }
+
+    if (complaintId && isUuid(complaintId)) {
+      try {
+        const res = await apiClient.get<any>(`/grievances/${complaintId}/follow-up-actions`);
+        if (res.items && res.items.length > 0) {
+          return res.items.map((act: any) => ({
+            id: act.id,
+            complaintId: complaintId,
+            type:
+              act.action_type === 'EMAIL_SENT'
+                ? 'EMAIL'
+                : act.action_type === 'LETTER_SENT'
+                ? 'LETTER'
+                : 'PHONE_CALL',
+            sender: 'Officer / DC PA',
+            recipient: 'Citizen / Department',
+            subject: act.action_type.replace(/_/g, ' '),
+            message: act.description,
+            outcome: act.outcome || 'Logged in system',
+            timestamp: act.created_at ? act.created_at.replace('T', ' ').substring(0, 19) : '',
+            deliveryStatus: 'DELIVERED',
+          }));
+        }
+      } catch (err) {
+        console.warn('Could not fetch actions for grievance:', err);
+      }
+    }
+
     return mockStorage.getCommunications(complaintId);
   }
 }

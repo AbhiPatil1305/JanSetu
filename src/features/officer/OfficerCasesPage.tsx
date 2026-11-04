@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../providers/AuthContext';
 import { complaintsService } from '../../services/api/complaints.service';
+import { officersService } from '../../services/api/officers.service';
 import { Complaint } from '../../types/complaint';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Card, CardContent } from '../../components/common/Card';
@@ -24,11 +25,18 @@ export const OfficerCasesPage: React.FC = () => {
     if (!user) return;
     setIsLoading(true);
     try {
-      // In demo mode, fetch cases assigned to this officer or station
-      const all = await complaintsService.getComplaints();
-      const officerCases = all.filter(
-        (c) => c.assignment?.officerId === user.id || c.assignment?.stationId === user.stationId
-      );
+      let officerCases: Complaint[] = [];
+      try {
+        officerCases = await officersService.getMyAssignments();
+      } catch {
+        // Fallback
+      }
+      if (officerCases.length === 0) {
+        const all = await complaintsService.getComplaints();
+        officerCases = all.filter(
+          (c) => c.assignment?.officerId === user.id || c.assignment?.stationId === user.stationId
+        );
+      }
       setCases(officerCases);
     } finally {
       setIsLoading(false);

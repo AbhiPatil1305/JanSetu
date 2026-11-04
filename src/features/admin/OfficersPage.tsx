@@ -57,7 +57,7 @@ export const OfficersPage: React.FC = () => {
     setName('');
     setEmployeeId(`KSP-PSI-2024-${Math.floor(1000 + Math.random() * 9000)}`);
     setDesignation('Police Sub-Inspector');
-    setStationId(stations[0]?.id || 'stn-1');
+    setStationId(stations[0]?.id || '');
     setPhone('+91 94808 ');
     setEmail('');
     setBadgeNumber(`PSI-${Math.floor(1000 + Math.random() * 9000)}`);

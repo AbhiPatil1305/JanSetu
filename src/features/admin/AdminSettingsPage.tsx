@@ -6,6 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/commo
 import { Button } from '../../components/common/Button';
 import { Settings, RotateCcw, Server, ShieldCheck, Database, Info } from 'lucide-react';
 
+import { USE_MOCK_API, API_BASE_URL } from '../../services/api/client';
+
 export const AdminSettingsPage: React.FC = () => {
   const { resetDemoData } = useAuth();
   const { showToast } = useNotifications();
@@ -14,7 +16,9 @@ export const AdminSettingsPage: React.FC = () => {
     resetDemoData();
     showToast(
       'Factory Demo State Restored',
-      'All grievance cases, follow-ups, escalations, and logs have been reset to default state.',
+      USE_MOCK_API
+        ? 'All grievance cases, follow-ups, escalations, and logs have been reset to default state.'
+        : 'Local browser cache cleared. Backend database is running on PostgreSQL grievance_db.',
       'success'
     );
   };
@@ -23,7 +27,7 @@ export const AdminSettingsPage: React.FC = () => {
     <div className="space-y-6 max-w-4xl mx-auto">
       <PageHeader
         title="District System Settings & Demonstration Controls"
-        subtitle="Operational parameters, local mock database controls, and backend API integration diagnostics."
+        subtitle="Operational parameters, database controls, and backend API integration diagnostics."
         breadcrumbs={[{ label: 'Administration' }, { label: 'Settings' }]}
       />
 
@@ -36,7 +40,7 @@ export const AdminSettingsPage: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-4 p-6 text-xs">
           <p className="text-slate-600 leading-relaxed">
-            Clicking the reset button will restore all 30 complaints, 5 departments, 6 police stations, 12 officers, follow-up records, and notifications back to the default factory state. Any newly registered complaints or modified records will be cleared.
+            Clicking the reset button will restore demo state. When operating in live backend mode, seed data in PostgreSQL can also be re-initialized at any time using <code>python seed_demo_data.py</code> in the backend repository.
           </p>
 
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
@@ -45,7 +49,7 @@ export const AdminSettingsPage: React.FC = () => {
 
           <div>
             <Button variant="danger" size="md" leftIcon={<RotateCcw className="w-4 h-4" />} onClick={handleReset}>
-              Reset Demo Data to Initial Factory State
+              Reset Demo State
             </Button>
           </div>
         </CardContent>
@@ -62,18 +66,26 @@ export const AdminSettingsPage: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
               <span className="text-slate-400 block font-semibold">Active Service Layer</span>
-              <span className="font-bold text-slate-900 text-sm">Local Mock Storage Engine</span>
-              <span className="text-[10px] text-emerald-700 font-mono block mt-0.5">VITE_USE_MOCK_API=true</span>
+              <span className="font-bold text-slate-900 text-sm">
+                {USE_MOCK_API ? 'Local Mock Storage Engine' : "Kenneth's FastAPI Backend"}
+              </span>
+              <span
+                className={`text-[10px] font-mono block mt-0.5 ${
+                  USE_MOCK_API ? 'text-amber-700' : 'text-emerald-700 font-bold'
+                }`}
+              >
+                {USE_MOCK_API ? 'VITE_USE_MOCK_API=true' : '● Live API Connected (VITE_USE_MOCK_API=false)'}
+              </span>
             </div>
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-              <span className="text-slate-400 block font-semibold">Target Future Backend URL</span>
-              <span className="font-bold text-slate-900 text-sm">/api/v1 (Ready for integration)</span>
-              <span className="text-[10px] text-slate-500 font-mono block mt-0.5">Configured in services/api/client.ts</span>
+              <span className="text-slate-400 block font-semibold">Target Backend URL</span>
+              <span className="font-bold text-slate-900 text-sm font-mono">{API_BASE_URL}</span>
+              <span className="text-[10px] text-slate-500 font-mono block mt-0.5">PostgreSQL 17 (grievance_db)</span>
             </div>
           </div>
 
           <p className="text-slate-500 leading-relaxed pt-2">
-            All user operations across JanSetu invoke typed methods on the Service abstraction layer (<code>complaintsService</code>, <code>departmentsService</code>, <code>officersService</code>, <code>followupsService</code>, <code>escalationsService</code>, <code>auditService</code>). A backend developer can seamlessly implement real REST endpoints matching these contracts.
+            All user operations across JanSetu invoke typed methods on the Service abstraction layer (<code>complaintsService</code>, <code>departmentsService</code>, <code>officersService</code>, <code>followupsService</code>, <code>escalationsService</code>, <code>auditService</code>), communicating directly with the running FastAPI backend on port 8000.
           </p>
         </CardContent>
       </Card>

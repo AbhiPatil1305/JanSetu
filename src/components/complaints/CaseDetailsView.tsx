@@ -77,6 +77,7 @@ export const CaseDetailsView: React.FC = () => {
   const [officers, setOfficers] = useState<User[]>([]);
 
   const [reviewRemarks, setReviewRemarks] = useState('');
+  const [timelineEvents, setTimelineEvents] = useState<any[]>([]);
 
   const loadCase = async () => {
     if (!id) return;
@@ -84,6 +85,7 @@ export const CaseDetailsView: React.FC = () => {
     try {
       const data = await complaintsService.getComplaintById(id);
       setComplaint(data);
+      complaintsService.getComplaintTimeline(id).then(setTimelineEvents).catch(() => {});
     } catch (err: any) {
       showToast('Error', err.message || 'Failed to load grievance details', 'error');
     } finally {
@@ -97,7 +99,7 @@ export const CaseDetailsView: React.FC = () => {
 
   useEffect(() => {
     // Preload stations for reassign modal
-    departmentsService.getStations('dept-1').then(setStations);
+    departmentsService.getStations().then(setStations);
   }, []);
 
   useEffect(() => {
@@ -238,9 +240,7 @@ export const CaseDetailsView: React.FC = () => {
 
   const handleAcknowledgeAssignment = async () => {
     try {
-      await complaintsService.updateComplaint(complaint.id, {
-        status: 'UNDER_INVESTIGATION',
-      });
+      await complaintsService.startInvestigation(complaint.id);
       showToast('Assignment Acknowledged', 'Case status transitioned to Under Investigation.', 'success');
       loadCase();
     } catch (err: any) {
@@ -830,51 +830,73 @@ export const CaseDetailsView: React.FC = () => {
           </CardHeader>
           <CardContent className="p-6">
             <div className="relative border-l-2 border-slate-200 ml-4 pl-6 space-y-6">
-              <div className="relative">
-                <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-emerald-600 border-2 border-white ring-2 ring-emerald-200" />
-                <p className="text-xs font-bold text-slate-900">Complaint Registered</p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Citizen petition accepted into the district registry by DC PA.
-                </p>
-                <span className="text-[10px] text-slate-400 font-mono block mt-1">{complaint.registeredAt}</span>
-              </div>
+              {timelineEvents.length > 0 ? (
+                timelineEvents.map((evt: any) => (
+                  <div key={evt.id} className="relative">
+                    <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-blue-600 border-2 border-white ring-2 ring-blue-200" />
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold text-slate-900">{evt.action.replace(/_/g, ' ')}</p>
+                      {evt.new_status && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                          {evt.new_status}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 mt-0.5">{evt.description}</p>
+                    <span className="text-[10px] text-slate-400 font-mono block mt-1">
+                      {new Date(evt.created_at).toLocaleString()} {evt.performing_user_name ? `• by ${evt.performing_user_name}` : ''}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <>
+                  <div className="relative">
+                    <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-emerald-600 border-2 border-white ring-2 ring-emerald-200" />
+                    <p className="text-xs font-bold text-slate-900">Complaint Registered</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Citizen petition accepted into the district registry by DC PA.
+                    </p>
+                    <span className="text-[10px] text-slate-400 font-mono block mt-1">{complaint.registeredAt}</span>
+                  </div>
 
-              {complaint.assignment && (
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-blue-600 border-2 border-white ring-2 ring-blue-200" />
-                  <p className="text-xs font-bold text-slate-900">Officer Assigned</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Dispatched to {complaint.assignment.officerName} ({complaint.assignment.stationName}) with Priority {complaint.assignment.priority}.
-                  </p>
-                  <span className="text-[10px] text-slate-400 font-mono block mt-1">{complaint.assignment.assignedAt}</span>
-                </div>
-              )}
+                  {complaint.assignment && (
+                    <div className="relative">
+                      <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-blue-600 border-2 border-white ring-2 ring-blue-200" />
+                      <p className="text-xs font-bold text-slate-900">Officer Assigned</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Dispatched to {complaint.assignment.officerName} ({complaint.assignment.stationName}) with Priority {complaint.assignment.priority}.
+                      </p>
+                      <span className="text-[10px] text-slate-400 font-mono block mt-1">{complaint.assignment.assignedAt}</span>
+                    </div>
+                  )}
 
-              {complaint.progressUpdates.map((upd) => (
-                <div key={upd.id} className="relative">
-                  <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-amber-500 border-2 border-white ring-2 ring-amber-200" />
-                  <p className="text-xs font-bold text-slate-900">Progress Update Logged</p>
-                  <p className="text-xs text-slate-600 mt-0.5">{upd.actionTaken}</p>
-                  <span className="text-[10px] text-slate-400 font-mono block mt-1">{upd.createdAt} &bull; by {upd.officerName}</span>
-                </div>
-              ))}
+                  {complaint.progressUpdates.map((upd) => (
+                    <div key={upd.id} className="relative">
+                      <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-amber-500 border-2 border-white ring-2 ring-amber-200" />
+                      <p className="text-xs font-bold text-slate-900">Progress Update Logged</p>
+                      <p className="text-xs text-slate-600 mt-0.5">{upd.actionTaken}</p>
+                      <span className="text-[10px] text-slate-400 font-mono block mt-1">{upd.createdAt} &bull; by {upd.officerName}</span>
+                    </div>
+                  ))}
 
-              {complaint.resolution && (
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-teal-600 border-2 border-white ring-2 ring-teal-200" />
-                  <p className="text-xs font-bold text-teal-900">Final Resolution Submitted</p>
-                  <p className="text-xs text-teal-700 mt-0.5">{complaint.resolution.resolutionSummary}</p>
-                  <span className="text-[10px] text-teal-500 font-mono block mt-1">{complaint.resolution.submittedAt}</span>
-                </div>
-              )}
+                  {complaint.resolution && (
+                    <div className="relative">
+                      <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-teal-600 border-2 border-white ring-2 ring-teal-200" />
+                      <p className="text-xs font-bold text-teal-900">Final Resolution Submitted</p>
+                      <p className="text-xs text-teal-700 mt-0.5">{complaint.resolution.resolutionSummary}</p>
+                      <span className="text-[10px] text-teal-500 font-mono block mt-1">{complaint.resolution.submittedAt}</span>
+                    </div>
+                  )}
 
-              {complaint.status === 'CLOSED' && (
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-emerald-700 border-2 border-white ring-2 ring-emerald-300" />
-                  <p className="text-xs font-bold text-emerald-900">Case Officially Closed</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Resolution verified and finalized by District Magistrate.</p>
-                  <span className="text-[10px] text-slate-400 font-mono block mt-1">{complaint.lastUpdatedAt}</span>
-                </div>
+                  {complaint.status === 'CLOSED' && (
+                    <div className="relative">
+                      <span className="absolute -left-[31px] top-0 w-3.5 h-3.5 rounded-full bg-emerald-700 border-2 border-white ring-2 ring-emerald-300" />
+                      <p className="text-xs font-bold text-emerald-900">Case Officially Closed</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Resolution verified and finalized by District Magistrate.</p>
+                      <span className="text-[10px] text-slate-400 font-mono block mt-1">{complaint.lastUpdatedAt}</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </CardContent>
