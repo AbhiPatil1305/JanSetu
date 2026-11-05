@@ -857,6 +857,34 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
           </CardHeader>
 
           <CardContent className="p-4 flex-1 flex flex-col space-y-3">
+            {/* Local Offline Engine Status Indicator */}
+            <div className="p-2.5 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2 bg-slate-50 border-slate-200">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    transEngineStatus?.status === 'READY'
+                      ? 'bg-emerald-500 animate-pulse'
+                      : 'bg-amber-500'
+                  }`}
+                />
+                <span className="font-semibold text-slate-800">
+                  Local Neural Engine: {transEngineStatus?.provider_name || 'AI4Bharat IndicTrans2'}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-medium">
+                  {transEngineStatus?.device || 'CPU'}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-emerald-700" />
+                  100% Offline &bull; Zero External Calls
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                {transEngineStatus?.status === 'READY'
+                  ? 'Model Weights Installed'
+                  : 'Offline Weights Loading'}
+              </span>
+            </div>
+
             {transErrorMessage && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />

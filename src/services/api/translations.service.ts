@@ -30,11 +30,16 @@ export interface TranslationRecord {
 }
 
 export interface TranslationEngineStatus {
+  provider?: string;
   provider_name: string;
+  model_name?: string;
   model_version: string;
   supported_pairs: string[];
+  supported_languages?: string[];
   is_local: boolean;
+  is_ready?: boolean;
   requires_external_network: boolean;
+  offline_available?: boolean;
   status: string;
   device: string;
 }
