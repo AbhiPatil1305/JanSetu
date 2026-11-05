@@ -60,6 +60,36 @@ export class TranslationsService {
   }
 
   /**
+   * Direct ad-hoc text translation between Kannada and English before grievance registration.
+   */
+  async translateText(
+    text: string,
+    sourceLanguage: 'kn' | 'en' = 'kn',
+    targetLanguage: 'en' | 'kn' = 'en'
+  ): Promise<{
+    source_text: string;
+    translated_text: string;
+    source_language: string;
+    target_language: string;
+    provider_name?: string;
+  }> {
+    if (USE_MOCK_API) {
+      await delay(300);
+      return {
+        source_text: text,
+        translated_text: `[Translated] ${text}`,
+        source_language: sourceLanguage,
+        target_language: targetLanguage,
+      };
+    }
+    return apiClient.post('/translations/translate-text', {
+      text,
+      source_language: sourceLanguage,
+      target_language: targetLanguage,
+    });
+  }
+
+  /**
    * Request bidirectional translation for an authorized document's OCR text.
    */
   async triggerTranslation(

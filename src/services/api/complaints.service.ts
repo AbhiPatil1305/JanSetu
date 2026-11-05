@@ -6,7 +6,7 @@ import {
   ResolutionSubmission,
 } from '../../types/complaint';
 import { mockStorage } from '../mock/mockStorage';
-import { apiClient, delay, ApiError, USE_MOCK_API, isUuid } from './client';
+import { apiClient, delay, ApiError, USE_MOCK_API, isUuid, API_BASE_URL } from './client';
 
 export interface ComplaintFilters {
   search?: string;
@@ -248,7 +248,28 @@ class ComplaintsService {
     }
 
     const detail = await apiClient.get<BackendGrievanceDetailResponse>(`/grievances/${id}`);
-    return mapBackendGrievanceToComplaint(detail);
+    const complaint = mapBackendGrievanceToComplaint(detail);
+    try {
+      const docs = await apiClient.get<any[]>(`/grievances/${id}/documents`);
+      if (Array.isArray(docs) && docs.length > 0) {
+        complaint.documents = docs.map((d: any) => ({
+          id: d.id,
+          name: d.document_name || d.original_filename || 'Petition Document',
+          size: d.file_size || 0,
+          type: d.mime_type || 'application/pdf',
+          url: d.download_url ? `${API_BASE_URL}${d.download_url}` : '#',
+          uploadedAt: d.created_at ? d.created_at.replace('T', ' ').substring(0, 19) : '',
+          isOriginal: true,
+          ocrStatus: d.ocr_status || 'NOT_STARTED',
+          ocrLanguage: d.ocr_language,
+          ocrProcessedAt: d.ocr_processed_at,
+          ocrError: d.ocr_error,
+        }));
+      }
+    } catch {
+      // Keep case details view resilient if documents endpoint is momentarily unavailable
+    }
+    return complaint;
   }
 
   async createComplaint(

@@ -15,6 +15,7 @@ import { PageHeader } from '../../components/layout/PageHeader';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { OcrPanel } from '../../components/complaints/OcrPanel';
+import { WebLlmSummarizerSection } from '../../components/complaints/WebLlmSummarizerSection';
 import {
   Upload,
   FileText,
@@ -656,66 +657,33 @@ export const RegisterComplaintPage: React.FC = () => {
               setReviewedOcr(saved);
               showToast('Reviewed Text Saved', 'Human verified petition text preserved.', 'success');
             }}
+            onTranslatedTextChange={(text, targetLang) => {
+              if (targetLang === 'en') {
+                setEnglishSummary(text);
+                if (!complaintDesc) {
+                  setComplaintDesc(text);
+                }
+              } else {
+                setKannadaSummary(text);
+              }
+            }}
           />
 
-          {/* AI Summaries & Multi-language Verification Workspace */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-bold flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-500" />
-                <span>AI Extracted Summaries & Verification Scores</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 p-5 text-xs">
-              {/* Confidence Indicators Header */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pb-3 border-b border-slate-100">
-                <div>
-                  <span className="text-slate-400 block mb-0.5">Citizen Identity</span>
-                  {getConfidenceBadge(confidenceScores.citizen)}
-                </div>
-                <div>
-                  <span className="text-slate-400 block mb-0.5">Classification</span>
-                  {getConfidenceBadge(confidenceScores.category)}
-                </div>
-                <div>
-                  <span className="text-slate-400 block mb-0.5">Location</span>
-                  {getConfidenceBadge(confidenceScores.location)}
-                </div>
-                <div>
-                  <span className="text-slate-400 block mb-0.5">Incident Date</span>
-                  {getConfidenceBadge(confidenceScores.date)}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* English Summary */}
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">
-                    English Summary (Editable):
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={englishSummary}
-                    onChange={(e) => setEnglishSummary(e.target.value)}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:bg-white focus:border-slate-800 outline-none leading-relaxed"
-                  />
-                </div>
-
-                {/* Kannada Summary */}
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1 font-kannada">
-                    ಕನ್ನಡ ಸಾರಾಂಶ (Kannada Summary - Editable):
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={kannadaSummary}
-                    onChange={(e) => setKannadaSummary(e.target.value)}
-                    className="w-full p-2.5 bg-amber-50/40 border border-amber-200 rounded-lg text-slate-800 focus:bg-white focus:border-amber-600 outline-none leading-relaxed font-kannada"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* WebLLM In-Browser Summaries & Editable Verification Workspace */}
+          <WebLlmSummarizerSection
+            sourceText={reviewedOcr || rawOcr || englishSummary}
+            englishSummary={englishSummary}
+            kannadaSummary={kannadaSummary}
+            onEnglishSummaryChange={(text) => {
+              setEnglishSummary(text);
+              if (!complaintDesc) {
+                setComplaintDesc(text);
+              }
+            }}
+            onKannadaSummaryChange={setKannadaSummary}
+            confidenceScores={confidenceScores}
+            getConfidenceBadge={getConfidenceBadge}
+          />
 
           {/* Form Auto-Fill Preview & Action Card */}
           <Card className="border-amber-200 bg-amber-50/20">
