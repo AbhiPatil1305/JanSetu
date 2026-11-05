@@ -36,6 +36,7 @@ import {
   FileCheck,
   Building,
   Check,
+  FileEdit,
 } from 'lucide-react';
 
 
@@ -92,44 +93,6 @@ export const RegisterComplaintPage: React.FC = () => {
   const [referenceNumber, setReferenceNumber] = useState('');
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
 
-  const applyExtractedDataToForm = (data: ParsedPetitionData, showNotice = false) => {
-    if (data.citizenName) setCitizenName(data.citizenName);
-    if (data.citizenPhone) setCitizenPhone(data.citizenPhone);
-    if (data.citizenEmail) setCitizenEmail(data.citizenEmail);
-    if (data.citizenAddress) setCitizenAddress(data.citizenAddress);
-    if (data.taluk) setTaluk(data.taluk);
-    if (data.villageLocality) setVillageLocality(data.villageLocality);
-    if (data.complaintTitle) setComplaintTitle(data.complaintTitle);
-    if (data.complaintCategory) setComplaintCategory(data.complaintCategory);
-    if (data.incidentDate) setIncidentDate(data.incidentDate);
-    if (data.incidentLocation) setIncidentLocation(data.incidentLocation);
-    if (data.complaintDesc) setComplaintDesc(data.complaintDesc);
-    if (data.requestedAction) setRequestedAction(data.requestedAction);
-    if (data.complaintLanguage) setComplaintLanguage(data.complaintLanguage);
-    if (data.englishSummary) setEnglishSummary(data.englishSummary);
-    if (data.kannadaSummary) setKannadaSummary(data.kannadaSummary);
-    if (data.confidenceScores) setConfidenceScores(data.confidenceScores);
-    setHasAutoFilled(true);
-
-    if (showNotice) {
-      showToast(
-        'Form Fields Auto-Filled',
-        'Citizen contact, grievance classification, and incident details successfully populated from document.',
-        'success'
-      );
-    }
-  };
-
-  const handleAutoFillFromText = (showNotice = true) => {
-    const textToParse = reviewedOcr || rawOcr;
-    if (!textToParse || !textToParse.trim()) {
-      showToast('No Document Text', 'Please extract or enter document text first.', 'warning');
-      return;
-    }
-    const parsed = parsePetitionText(textToParse);
-    applyExtractedDataToForm(parsed, showNotice);
-  };
-
   // Dependent cascading selectors
   const [departments, setDepartments] = useState<Department[]>([]);
   const [stations, setStations] = useState<PoliceStation[]>([]);
@@ -153,6 +116,118 @@ export const RegisterComplaintPage: React.FC = () => {
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [docUploadComplete, setDocUploadComplete] = useState(false);
 
+  const applyExtractedDataToForm = (data: ParsedPetitionData, showNotice = false) => {
+    if (data.citizenName) setCitizenName(data.citizenName);
+    if (data.citizenPhone) setCitizenPhone(data.citizenPhone);
+    if (data.citizenEmail) setCitizenEmail(data.citizenEmail);
+    if (data.citizenAddress) setCitizenAddress(data.citizenAddress);
+    if (data.taluk) setTaluk(data.taluk);
+    if (data.villageLocality) setVillageLocality(data.villageLocality);
+    if (data.complaintTitle) setComplaintTitle(data.complaintTitle);
+    if (data.complaintCategory) setComplaintCategory(data.complaintCategory);
+    if (data.incidentDate) setIncidentDate(data.incidentDate);
+    if (data.incidentLocation) setIncidentLocation(data.incidentLocation);
+    if (data.complaintDesc) setComplaintDesc(data.complaintDesc);
+    if (data.requestedAction) setRequestedAction(data.requestedAction);
+    if (data.complaintLanguage) setComplaintLanguage(data.complaintLanguage);
+    if (data.englishSummary) setEnglishSummary(data.englishSummary);
+    if (data.kannadaSummary) setKannadaSummary(data.kannadaSummary);
+    if (data.confidenceScores) setConfidenceScores(data.confidenceScores);
+    if (data.suggestedPriority) setPriority(data.suggestedPriority as ComplaintPriority);
+
+    // Auto-match department if suggested
+    if (data.suggestedDepartment && departments.length > 0) {
+      const norm = data.suggestedDepartment.toLowerCase();
+      const matchedDept = departments.find((d) => {
+        const dName = d.name.toLowerCase();
+        const dCode = d.code.toLowerCase();
+        return (
+          norm.includes(dName) ||
+          dName.includes(norm) ||
+          (norm.includes('police') && (dName.includes('police') || dCode.includes('pol'))) ||
+          (norm.includes('revenue') && (dName.includes('revenue') || dCode.includes('rev'))) ||
+          (norm.includes('bbmp') && (dName.includes('bbmp') || dCode.includes('bbmp'))) ||
+          (norm.includes('women') && (dName.includes('women') || dCode.includes('wcd'))) ||
+          (norm.includes('public works') && (dName.includes('public works') || dCode.includes('pwd')))
+        );
+      });
+      if (matchedDept && matchedDept.id !== selectedDeptId) {
+        setSelectedDeptId(matchedDept.id);
+      }
+    }
+
+    // Auto-match police station if locality is detected
+    const locTarget = (data.villageLocality || data.incidentLocation || '').toLowerCase();
+    if (locTarget && stations.length > 0) {
+      const matchedStation = stations.find((s) => {
+        const sName = s.name.toLowerCase();
+        return (
+          locTarget.includes(sName) ||
+          sName.includes(locTarget) ||
+          (s.location && s.location.toLowerCase().includes(locTarget))
+        );
+      });
+      if (matchedStation) {
+        setSelectedStationId(matchedStation.id);
+      }
+    }
+
+    // Pre-fill assignment directives if not already set
+    if (!assignmentInstructions && (data.complaintCategory || data.requestedAction)) {
+      const cat = data.complaintCategory || 'grievance';
+      const loc = data.incidentLocation || data.villageLocality || 'jurisdiction area';
+      const rel = data.requestedAction ? `Citizen relief sought: "${data.requestedAction}".` : '';
+      setAssignmentInstructions(
+        `Urgent field inquiry regarding ${cat} at ${loc}. Verify complainant statements, inspect locus, and submit statutory Action Taken Report (ATR) within prescribed follow-up schedule. ${rel}`.trim()
+      );
+    }
+
+    setHasAutoFilled(true);
+
+    if (showNotice) {
+      showToast(
+        'Form Fields Auto-Filled',
+        'Citizen contact, grievance classification, and incident details successfully populated from document.',
+        'success'
+      );
+    }
+  };
+
+  const handleAutoFillFromText = (showNotice = true) => {
+    const textToParse = reviewedOcr || rawOcr;
+    if (!textToParse || !textToParse.trim()) {
+      showToast('No Document Text', 'Please extract or enter document text first.', 'warning');
+      return;
+    }
+    const parsed = parsePetitionText(textToParse, englishSummary);
+    applyExtractedDataToForm(parsed, showNotice);
+  };
+
+  const handleProceedToCompleteForm = () => {
+    const textToParse = reviewedOcr || rawOcr;
+    if (textToParse && textToParse.trim()) {
+      const parsed = parsePetitionText(textToParse, englishSummary);
+      applyExtractedDataToForm(parsed, true);
+    }
+    setCurrentStage(3);
+  };
+
+  const handleSkipToManualEntry = () => {
+    setFile(null);
+    setUploadedRawFile(null);
+    setRawOcr('');
+    setReviewedOcr('');
+    setEnglishSummary('');
+    setKannadaSummary('');
+    setHasAutoFilled(false);
+    setCurrentStage(3);
+    showToast(
+      'Manual Entry Mode',
+      'Proceeding directly to grievance case form. Please enter citizen and case details manually.',
+      'info'
+    );
+  };
+
   // Load departments
   useEffect(() => {
     departmentsService.getDepartments().then((depts) => {
@@ -169,7 +244,18 @@ export const RegisterComplaintPage: React.FC = () => {
       departmentsService.getStations(selectedDeptId).then((stns) => {
         setStations(stns);
         if (stns.length > 0) {
-          setSelectedStationId(stns[0].id);
+          const locTarget = (villageLocality || incidentLocation || '').toLowerCase();
+          const matched = locTarget
+            ? stns.find((s) => {
+                const sName = s.name.toLowerCase();
+                return (
+                  locTarget.includes(sName) ||
+                  sName.includes(locTarget) ||
+                  (s.location && s.location.toLowerCase().includes(locTarget))
+                );
+              })
+            : null;
+          setSelectedStationId(matched ? matched.id : stns[0].id);
         } else {
           setSelectedStationId('');
         }
@@ -178,7 +264,7 @@ export const RegisterComplaintPage: React.FC = () => {
       setStations([]);
       setSelectedStationId('');
     }
-  }, [selectedDeptId]);
+  }, [selectedDeptId, villageLocality, incidentLocation]);
 
   // Update officers when station changes
   useEffect(() => {
@@ -520,11 +606,20 @@ export const RegisterComplaintPage: React.FC = () => {
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
           <div className="grid grid-cols-4 gap-2 sm:gap-4">
             {[
-              { num: 1, title: 'Upload Document', desc: 'PDF / Scanned Image' },
-              { num: 2, title: 'OCR & AI Review', desc: 'Bilingual Extraction' },
+              {
+                num: 1,
+                title: 'Upload Document',
+                desc: !file && currentStage >= 3 ? 'Manual Entry Selected' : 'PDF / Scanned Image',
+              },
+              {
+                num: 2,
+                title: 'OCR & AI Review',
+                desc: !file && currentStage >= 3 ? 'Skipped (Direct Form)' : 'Bilingual Extraction',
+              },
               { num: 3, title: 'Complete Form', desc: 'Citizen & Officer Details' },
               { num: 4, title: 'Review & Dispatch', desc: 'Register & Assign' },
             ].map((step) => {
+              const isSkipped = !file && currentStage >= 3 && step.num === 2;
               const isPast = currentStage > step.num;
               const isCurrent = currentStage === step.num;
               return (
@@ -536,14 +631,16 @@ export const RegisterComplaintPage: React.FC = () => {
                 >
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
-                      isPast
+                      isSkipped
+                        ? 'bg-slate-100 text-slate-400 border border-dashed border-slate-300'
+                        : isPast
                         ? 'bg-emerald-600 text-white'
                         : isCurrent
                         ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/30'
                         : 'bg-slate-100 text-slate-400'
                     }`}
                   >
-                    {isPast ? <Check className="w-4 h-4" /> : step.num}
+                    {isSkipped ? '—' : isPast ? <Check className="w-4 h-4" /> : step.num}
                   </div>
                   <div className="hidden sm:block min-w-0">
                     <p
@@ -629,7 +726,40 @@ export const RegisterComplaintPage: React.FC = () => {
                 </div>
               )}
 
+              {/* OR Divider & Direct Manual Entry Option */}
+              <div className="relative my-2 flex items-center justify-center">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <span className="relative bg-white px-4 text-xs font-bold uppercase tracking-wider text-slate-400">
+                  OR
+                </span>
+              </div>
 
+              <div className="bg-slate-50 hover:bg-amber-50/40 border border-slate-200/90 hover:border-amber-300 rounded-2xl p-5 sm:p-6 transition flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-4 text-left">
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center flex-shrink-0 shadow-xs">
+                    <FileEdit className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      No Case Document? Enter Details Manually
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Skip document upload and OCR extraction to directly fill citizen contact, incident details, and officer assignment.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="primary"
+                  size="md"
+                  className="whitespace-nowrap shadow-sm flex-shrink-0 font-semibold"
+                  rightIcon={<ChevronRight className="w-4 h-4" />}
+                  onClick={handleSkipToManualEntry}
+                >
+                  Enter Manually (Skip to Form)
+                </Button>
+              </div>
 
               {/* Confidentiality notice */}
               <div className="p-4 bg-slate-900 text-slate-300 rounded-xl text-xs flex items-start gap-3 border border-slate-800">
@@ -746,13 +876,7 @@ export const RegisterComplaintPage: React.FC = () => {
               variant="primary"
               size="md"
               rightIcon={<ChevronRight className="w-4 h-4" />}
-              onClick={() => {
-                // Ensure form has latest parsed fields before transitioning
-                if (!hasAutoFilled && (reviewedOcr || rawOcr)) {
-                  handleAutoFillFromText(false);
-                }
-                setCurrentStage(3);
-              }}
+              onClick={handleProceedToCompleteForm}
             >
               Verify & Complete Case Form
             </Button>
@@ -772,7 +896,7 @@ export const RegisterComplaintPage: React.FC = () => {
             </CardHeader>
             <CardContent className="space-y-6 p-6 text-xs">
               {/* Notice that fields have been auto-filled */}
-              {hasAutoFilled && (
+              {hasAutoFilled ? (
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-3.5 flex items-center justify-between text-xs shadow-2xs">
                   <div className="flex items-center gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
@@ -789,7 +913,14 @@ export const RegisterComplaintPage: React.FC = () => {
                     Re-sync from OCR Text
                   </Button>
                 </div>
-              )}
+              ) : !file ? (
+                <div className="bg-amber-50/70 border border-amber-200 text-amber-900 rounded-xl p-3.5 flex items-center gap-2.5 text-xs shadow-2xs">
+                  <FileEdit className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <span>
+                    <strong>Manual Registration Mode:</strong> No petition document attached. Please fill in citizen contact, incident classification, and officer assignment details below.
+                  </span>
+                </div>
+              ) : null}
 
               {/* Section 1: Citizen Details */}
               <div className="space-y-3">
@@ -1070,9 +1201,9 @@ export const RegisterComplaintPage: React.FC = () => {
               variant="outline"
               size="md"
               leftIcon={<ChevronLeft className="w-4 h-4" />}
-              onClick={() => setCurrentStage(2)}
+              onClick={() => setCurrentStage(file ? 2 : 1)}
             >
-              Back to OCR Review
+              {file ? 'Back to OCR Review' : 'Back to Document Upload'}
             </Button>
             <Button
               variant="primary"
@@ -1137,7 +1268,7 @@ export const RegisterComplaintPage: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-slate-400 block font-semibold">Original Document</span>
-                    <p className="text-slate-700 font-mono truncate">{file?.name || 'Uploaded_Petition.pdf'}</p>
+                    <p className="text-slate-700 font-mono truncate">{file?.name || 'No document attached (Direct manual registration)'}</p>
                   </div>
                 </div>
               </div>
