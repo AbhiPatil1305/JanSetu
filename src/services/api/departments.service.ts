@@ -32,19 +32,26 @@ class DepartmentsService {
       return mockStorage.getDepartments();
     }
 
-    const data = await apiClient.get<BackendDepartment[]>('/departments');
-    return data.map((d) => ({
-      id: d.id,
-      code: d.code,
-      name: d.name,
-      head: d.description || 'Department Head',
-      contactEmail: `${d.code.toLowerCase()}@karnataka.gov.in`,
-      contactPhone: '+91 80 2200 0000',
-      stationsCount: d.code === 'POL' ? 6 : 2,
-      totalComplaints: 0,
-      openComplaints: 0,
-      status: d.is_active ? 'active' : 'inactive',
-    }));
+    try {
+      const data = await apiClient.get<BackendDepartment[]>('/departments');
+      if (Array.isArray(data) && data.length > 0) {
+        return data.map((d) => ({
+          id: d.id,
+          code: d.code,
+          name: d.name,
+          head: d.description || 'Department Head',
+          contactEmail: `${d.code.toLowerCase()}@karnataka.gov.in`,
+          contactPhone: '+91 80 2200 0000',
+          stationsCount: d.code === 'POL' ? 6 : 2,
+          totalComplaints: 0,
+          openComplaints: 0,
+          status: d.is_active ? 'active' : 'inactive',
+        }));
+      }
+    } catch (e) {
+      console.warn('Could not load departments from live backend, using local department registry:', e);
+    }
+    return mockStorage.getDepartments();
   }
 
   async addDepartment(
@@ -126,23 +133,36 @@ class DepartmentsService {
       return all;
     }
 
-    const params: Record<string, any> = {};
-    if (departmentId && isUuid(departmentId)) params.department_id = departmentId;
+    try {
+      const params: Record<string, any> = {};
+      if (departmentId && isUuid(departmentId)) params.department_id = departmentId;
 
-    const offices = await apiClient.get<BackendOffice[]>('/offices', { params });
-    return offices.map((o) => ({
-      id: o.id,
-      departmentId: o.department_id,
-      code: o.office_code,
-      name: o.name,
-      location: o.district ? `${o.district}, ${o.state}` : 'Bengaluru Urban, Karnataka',
-      contactNumber: '+91 80 2294 2222',
-      inChargeName: 'Station House Officer (SHO)',
-      inChargeRank: 'Police Inspector (PI)',
-      officersCount: 5,
-      activeCases: 0,
-      status: o.is_active ? 'active' : 'inactive',
-    }));
+      const offices = await apiClient.get<BackendOffice[]>('/offices', { params });
+      if (Array.isArray(offices) && offices.length > 0) {
+        return offices.map((o) => ({
+          id: o.id,
+          departmentId: o.department_id,
+          code: o.office_code,
+          name: o.name,
+          location: o.district ? `${o.district}, ${o.state}` : 'Bengaluru Urban, Karnataka',
+          contactNumber: '+91 80 2294 2222',
+          inChargeName: 'Station House Officer (SHO)',
+          inChargeRank: 'Police Inspector (PI)',
+          officersCount: 5,
+          activeCases: 0,
+          status: o.is_active ? 'active' : 'inactive',
+        }));
+      }
+    } catch (e) {
+      console.warn('Could not load offices from live backend, using local stations:', e);
+    }
+
+    const all = mockStorage.getStations();
+    if (departmentId) {
+      const filtered = all.filter((s) => s.departmentId === departmentId);
+      return filtered.length > 0 ? filtered : all;
+    }
+    return all;
   }
 
   async addStation(

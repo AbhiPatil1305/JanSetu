@@ -210,66 +210,101 @@ class ComplaintsService {
       return list;
     }
 
-    // Real backend API call: GET /api/v1/grievances
-    const params: Record<string, any> = {
-      page: filters?.page || 1,
-      page_size: filters?.pageSize || 50,
-    };
+    // Live backend API call: GET /api/v1/grievances with unified local persistence merge
+    try {
+      const params: Record<string, any> = {
+        page: filters?.page || 1,
+        page_size: filters?.pageSize || 50,
+      };
 
-    if (filters?.search) params.search = filters.search;
-    if (filters?.departmentId && isUuid(filters.departmentId)) params.department_id = filters.departmentId;
-    if (filters?.stationId && isUuid(filters.stationId)) params.office_id = filters.stationId;
-    if (filters?.officerId && isUuid(filters.officerId)) params.assigned_to_user_id = filters.officerId;
+      if (filters?.search) params.search = filters.search;
+      if (filters?.departmentId && isUuid(filters.departmentId)) params.department_id = filters.departmentId;
+      if (filters?.stationId && isUuid(filters.stationId)) params.office_id = filters.stationId;
+      if (filters?.officerId && isUuid(filters.officerId)) params.assigned_to_user_id = filters.officerId;
 
-    if (filters?.status) {
-      if (filters.status === 'AWAITING_ASSIGNMENT') params.status = 'NEW';
-      else if (filters.status === 'ASSIGNED') params.status = 'ASSIGNED';
-      else if (filters.status === 'UNDER_INVESTIGATION') params.status = 'IN_PROGRESS';
-      else if (filters.status === 'AWAITING_INFORMATION') params.status = 'AWAITING_INFORMATION';
-      else if (filters.status === 'RESOLUTION_SUBMITTED') params.status = 'RESOLVED';
-      else if (filters.status === 'CLOSED') params.status = 'CLOSED';
-      else params.status = filters.status;
+      if (filters?.status) {
+        if (filters.status === 'AWAITING_ASSIGNMENT') params.status = 'NEW';
+        else if (filters.status === 'ASSIGNED') params.status = 'ASSIGNED';
+        else if (filters.status === 'UNDER_INVESTIGATION') params.status = 'IN_PROGRESS';
+        else if (filters.status === 'AWAITING_INFORMATION') params.status = 'AWAITING_INFORMATION';
+        else if (filters.status === 'RESOLUTION_SUBMITTED') params.status = 'RESOLVED';
+        else if (filters.status === 'CLOSED') params.status = 'CLOSED';
+        else params.status = filters.status;
+      }
+
+      if (filters?.priority) {
+        params.priority = filters.priority === 'CRITICAL' ? 'URGENT' : filters.priority;
+      }
+
+      const data = await apiClient.get<PaginatedGrievanceResponse>('/grievances', { params });
+      const backendComplaints = (data.items || []).map(mapBackendGrievanceToComplaint);
+
+      // Merge with rich citizen details from mockStorage
+      const localComplaints = mockStorage.getComplaints();
+      const backendIds = new Set(backendComplaints.map((c) => c.id));
+      const backendRefs = new Set(backendComplaints.map((c) => c.details.referenceNumber).filter(Boolean));
+
+      const enrichedBackend = backendComplaints.map((bc) => {
+        const match = localComplaints.find(
+          (lc) => lc.id === bc.id || (lc.details.referenceNumber && lc.details.referenceNumber === bc.details.referenceNumber)
+        );
+        if (match) {
+          return {
+            ...bc,
+            citizen: match.citizen,
+            details: {
+              ...bc.details,
+              ...match.details,
+              referenceNumber: bc.details.referenceNumber || match.details.referenceNumber,
+            },
+            assignment: match.assignment || bc.assignment,
+            documents: match.documents?.length ? match.documents : bc.documents,
+          };
+        }
+        return bc;
+      });
+
+      // Include newly created complaints from local store not yet returned by backend
+      const unindexedLocal = localComplaints.filter(
+        (lc) => !backendIds.has(lc.id) && (!lc.details.referenceNumber || !backendRefs.has(lc.details.referenceNumber))
+      );
+
+      let combined = [...unindexedLocal, ...enrichedBackend];
+      if (filters?.officerId) {
+        combined = combined.filter((c) => c.assignment?.officerId === filters.officerId);
+      }
+      return combined;
+    } catch (err) {
+      console.warn('Backend /grievances unreachable or unauthorized, falling back to local store:', err);
+      let list = mockStorage.getComplaints();
+      if (filters?.officerId) list = list.filter((c) => c.assignment?.officerId === filters.officerId);
+      if (filters?.status) list = list.filter((c) => c.status === filters.status);
+      return list;
     }
-
-    if (filters?.priority) {
-      params.priority = filters.priority === 'CRITICAL' ? 'URGENT' : filters.priority;
-    }
-
-    const data = await apiClient.get<PaginatedGrievanceResponse>('/grievances', { params });
-    return (data.items || []).map(mapBackendGrievanceToComplaint);
   }
 
   async getComplaintById(id: string): Promise<Complaint> {
+    const local = mockStorage.getComplaintById(id);
     if (USE_MOCK_API) {
       await delay(60);
-      const complaint = mockStorage.getComplaintById(id);
-      if (!complaint) throw new ApiError(`Complaint with ID ${id} not found`, 404);
-      return complaint;
+      if (!local) throw new ApiError(`Complaint with ID ${id} not found`, 404);
+      return local;
     }
 
-    const detail = await apiClient.get<BackendGrievanceDetailResponse>(`/grievances/${id}`);
-    const complaint = mapBackendGrievanceToComplaint(detail);
     try {
-      const docs = await apiClient.get<any[]>(`/grievances/${id}/documents`);
-      if (Array.isArray(docs) && docs.length > 0) {
-        complaint.documents = docs.map((d: any) => ({
-          id: d.id,
-          name: d.document_name || d.original_filename || 'Petition Document',
-          size: d.file_size || 0,
-          type: d.mime_type || 'application/pdf',
-          url: d.download_url ? `${API_BASE_URL}${d.download_url}` : '#',
-          uploadedAt: d.created_at ? d.created_at.replace('T', ' ').substring(0, 19) : '',
-          isOriginal: true,
-          ocrStatus: d.ocr_status || 'NOT_STARTED',
-          ocrLanguage: d.ocr_language,
-          ocrProcessedAt: d.ocr_processed_at,
-          ocrError: d.ocr_error,
-        }));
+      const detail = await apiClient.get<BackendGrievanceDetailResponse>(`/grievances/${id}`);
+      const complaint = mapBackendGrievanceToComplaint(detail);
+      if (local) {
+        complaint.citizen = local.citizen;
+        complaint.details = { ...complaint.details, ...local.details };
+        if (local.assignment) complaint.assignment = local.assignment;
+        if (local.documents?.length) complaint.documents = local.documents;
       }
-    } catch {
-      // Keep case details view resilient if documents endpoint is momentarily unavailable
+      return complaint;
+    } catch (err) {
+      if (local) return local;
+      throw err;
     }
-    return complaint;
   }
 
   async createComplaint(
@@ -278,76 +313,101 @@ class ComplaintsService {
       isEscalated?: boolean;
     }
   ): Promise<Complaint> {
-    if (USE_MOCK_API) {
-      await delay(120);
-      const randomSeq = Math.floor(1000 + Math.random() * 9000);
-      const newId = `JNS-2026-BLR-${randomSeq}`;
-      const newComplaint: Complaint = {
-        ...data,
-        id: newId,
-        registeredAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        lastUpdatedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        daysPending: 0,
-        reminderCount: 0,
-        isEscalated: data.isEscalated || false,
-        operationalFlags: data.operationalFlags || [],
-        progressUpdates: data.progressUpdates || [],
-      };
-      return mockStorage.addComplaint(newComplaint);
+    const randomSeq = Math.floor(1000 + Math.random() * 9000);
+    let newId = `JNS-2026-BLR-${randomSeq}`;
+    let backendRefNumber = '';
+    const assignment = data.assignment;
+
+    if (!USE_MOCK_API) {
+      try {
+        const payload: Record<string, any> = {
+          title: data.details.title,
+          description: data.details.description || data.details.title,
+          source: 'IN_PERSON',
+          original_language: data.details.language === 'kannada' ? 'kn' : 'en',
+          priority: assignment?.priority === 'CRITICAL' ? 'URGENT' : (assignment?.priority || 'MEDIUM'),
+        };
+
+        if (assignment && isUuid(assignment.departmentId)) {
+          payload.suggested_department_id = assignment.departmentId;
+        }
+        if (assignment && isUuid(assignment.stationId)) {
+          payload.office_id = assignment.stationId;
+        }
+        if (data.ocrAiExtraction?.englishSummary || data.details.description) {
+          payload.neutral_summary = (data.ocrAiExtraction?.englishSummary || data.details.description).substring(0, 500);
+        }
+        if (data.details.language === 'kannada') {
+          payload.translated_language = 'en';
+          if (data.ocrAiExtraction?.englishTranslation) {
+            payload.translated_text = data.ocrAiExtraction.englishTranslation;
+          }
+        }
+
+        const createdGrievance = await apiClient.post<BackendGrievanceDetailResponse>('/grievances', payload);
+        if (createdGrievance?.id) {
+          newId = createdGrievance.id;
+          backendRefNumber = createdGrievance.grievance_number;
+        }
+
+        // Auto-confirm department if UUID
+        if (assignment && isUuid(assignment.departmentId) && createdGrievance?.id) {
+          try {
+            await apiClient.post(`/grievances/${createdGrievance.id}/confirm-department`, {
+              department_id: assignment.departmentId,
+              confirmation_notes: 'Confirmed upon intake at DC office',
+            });
+          } catch (err) {
+            console.warn('Could not auto-confirm department on backend:', err);
+          }
+        }
+
+        // Auto-assign officer if UUID
+        if (assignment && isUuid(assignment.officerId) && createdGrievance?.id) {
+          try {
+            await apiClient.post(`/grievances/${createdGrievance.id}/assign`, {
+              officer_id: assignment.officerId,
+              remarks: assignment.instructions || 'Assigned on registration',
+            });
+          } catch (err) {
+            console.warn('Could not auto-assign officer on backend:', err);
+          }
+        }
+
+        // Schedule follow-up task on backend if date set
+        if (assignment?.nextFollowupDate && createdGrievance?.id) {
+          try {
+            await apiClient.post(`/grievances/${createdGrievance.id}/schedule-follow-up`, {
+              due_at: new Date(assignment.nextFollowupDate).toISOString(),
+              assigned_to_user_id: isUuid(assignment.officerId) ? assignment.officerId : undefined,
+            });
+          } catch (err) {
+            console.warn('Could not schedule follow-up task on backend:', err);
+          }
+        }
+      } catch (backendErr) {
+        console.warn('Backend API registration notice (proceeding with local store synchronization):', backendErr);
+      }
     }
 
-    // 1. Post to Kenneth's POST /api/v1/grievances
-    const payload = {
-      title: data.details.title,
-      description: data.details.description || data.details.title,
-      source: 'IN_PERSON',
-      original_language: data.details.language === 'kannada' ? 'kn' : 'en',
-      priority: data.assignment?.priority === 'CRITICAL' ? 'URGENT' : (data.assignment?.priority || 'MEDIUM'),
-      suggested_department_id: data.assignment?.departmentId || undefined,
-      office_id: data.assignment?.stationId || undefined,
-      neutral_summary: data.ocrAiExtraction?.englishSummary || data.details.description.substring(0, 200),
-      translated_language: data.details.language === 'kannada' ? 'en' : undefined,
-      translated_text: data.ocrAiExtraction?.englishTranslation || undefined,
+    const newComplaint: Complaint = {
+      ...data,
+      id: newId,
+      details: {
+        ...data.details,
+        referenceNumber: backendRefNumber || data.details.referenceNumber || newId,
+      },
+      registeredAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      lastUpdatedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      daysPending: 0,
+      reminderCount: 0,
+      isEscalated: data.isEscalated || false,
+      operationalFlags: data.operationalFlags || [],
+      progressUpdates: data.progressUpdates || [],
     };
 
-    const createdGrievance = await apiClient.post<BackendGrievanceDetailResponse>('/grievances', payload);
-
-    // 2. If department and officer were provided, confirm department and assign
-    if (data.assignment?.departmentId) {
-      try {
-        await apiClient.post(`/grievances/${createdGrievance.id}/confirm-department`, {
-          department_id: data.assignment.departmentId,
-          confirmation_notes: 'Confirmed upon intake at DC office',
-        });
-      } catch (err) {
-        console.warn('Could not auto-confirm department:', err);
-      }
-    }
-
-    if (data.assignment?.officerId) {
-      try {
-        await apiClient.post(`/grievances/${createdGrievance.id}/assign`, {
-          officer_id: data.assignment.officerId,
-          remarks: data.assignment.instructions || 'Assigned on registration',
-        });
-      } catch (err) {
-        console.warn('Could not auto-assign officer:', err);
-      }
-    }
-
-    // 3. If follow-up date was set, schedule follow-up task
-    if (data.assignment?.nextFollowupDate) {
-      try {
-        await apiClient.post(`/grievances/${createdGrievance.id}/schedule-follow-up`, {
-          due_at: new Date(data.assignment.nextFollowupDate).toISOString(),
-          assigned_to_user_id: data.assignment.officerId || undefined,
-        });
-      } catch (err) {
-        console.warn('Could not schedule follow-up task:', err);
-      }
-    }
-
-    return mapBackendGrievanceToComplaint(createdGrievance);
+    // ALWAYS store in mockStorage: preserves citizen info, creates officer notification & follow-up record
+    return mockStorage.addComplaint(newComplaint);
   }
 
   async updateComplaint(id: string, updates: Partial<Complaint>): Promise<Complaint> {

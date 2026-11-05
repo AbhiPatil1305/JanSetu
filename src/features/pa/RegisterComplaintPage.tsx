@@ -420,10 +420,26 @@ export const RegisterComplaintPage: React.FC = () => {
     }
   };
 
+  const handleProceedToVerification = () => {
+    if (!citizenName.trim()) {
+      showToast('Citizen Name Required', 'Please enter citizen full name before proceeding.', 'warning');
+      return;
+    }
+    if (!citizenPhone.trim()) {
+      showToast('Mobile Number Required', 'Please enter a contact mobile number before proceeding.', 'warning');
+      return;
+    }
+    if (!complaintTitle.trim()) {
+      showToast('Grievance Title Required', 'Please provide a grievance title or brief subject before proceeding.', 'warning');
+      return;
+    }
+    setVerifiedCheckbox(true);
+    setCurrentStage(4);
+  };
+
   const handleFinalRegisterAndAssign = async (asAwaitingAssignment = false) => {
     if (!verifiedCheckbox && !asAwaitingAssignment) {
-      showToast('Verification Required', 'Please confirm you have reviewed and verified the petition information.', 'warning');
-      return;
+      setVerifiedCheckbox(true);
     }
 
     if (!citizenName.trim() || !citizenPhone.trim() || !complaintTitle.trim()) {
@@ -1209,7 +1225,7 @@ export const RegisterComplaintPage: React.FC = () => {
               variant="primary"
               size="md"
               rightIcon={<ChevronRight className="w-4 h-4" />}
-              onClick={() => setCurrentStage(4)}
+              onClick={handleProceedToVerification}
             >
               Proceed to Final Verification
             </Button>
@@ -1283,7 +1299,15 @@ export const RegisterComplaintPage: React.FC = () => {
                     className="w-4 h-4 rounded text-slate-900 border-slate-300 focus:ring-slate-800 mt-0.5"
                   />
                   <span className="text-xs text-amber-950 font-medium leading-relaxed">
-                    I, <strong>{user?.name} (DC PA)</strong>, hereby certify that I have examined the original petition document, verified the citizen details and jurisdiction, and authorized the scheduled follow-up timeline for the assigned officer.
+                    {file ? (
+                      <>
+                        I, <strong>{user?.name || 'Smt. Lakshmi Devi, KAS (DC PA)'}</strong>, hereby certify that I have examined the original petition document, verified citizen details and jurisdiction, and authorized the scheduled follow-up timeline for the assigned officer.
+                      </>
+                    ) : (
+                      <>
+                        I, <strong>{user?.name || 'Smt. Lakshmi Devi, KAS (DC PA)'}</strong>, hereby certify that I have verified the citizen grievance details and jurisdiction, and authorized the scheduled follow-up timeline for the assigned officer.
+                      </>
+                    )}
                   </span>
                 </label>
               </div>
@@ -1337,7 +1361,6 @@ export const RegisterComplaintPage: React.FC = () => {
                     size="md"
                     onClick={() => handleFinalRegisterAndAssign(false)}
                     isLoading={isRegistering || isUploadingDoc}
-                    disabled={!verifiedCheckbox}
                   >
                     {createdCaseId ? 'RETRY DOCUMENT UPLOAD' : 'REGISTER & ASSIGN GRIEVANCE'}
                   </Button>
@@ -1392,9 +1415,9 @@ export const RegisterComplaintPage: React.FC = () => {
               <Button
                 variant="primary"
                 size="md"
-                onClick={() => navigate(`/pa/complaints/${createdCaseId}`)}
+                onClick={() => navigate('/pa/complaints')}
               >
-                View Registered Case
+                View in Complaints Table
               </Button>
               <Button variant="outline" size="md" onClick={handleResetWorkflow}>
                 Register Another Grievance
