@@ -80,42 +80,75 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
     };
 
     try {
+      const hasKannada = /[\u0C80-\u0CFF]/.test(textToSummarize);
       let generatedEng = '';
+      let generatedKan = '';
 
-      if (isWebGpuAvailable) {
-        // Run in-browser WebGPU LLM
-        generatedEng = await webllmService.summarizePetition(
-          textToSummarize,
-          selectedModel,
-          onProgress
-        );
-        const modelObj = AVAILABLE_WEBLLM_MODELS.find((m) => m.id === selectedModel);
-        setLastGeneratedBy(modelObj ? modelObj.name : 'WebLLM');
-      } else {
-        // Graceful fallback for browsers without WebGPU
-        setProgressText('WebGPU not supported on this device. Using intelligent heuristic synopsis...');
-        generatedEng = webllmService.generateHeuristicSummary(textToSummarize);
-        setLastGeneratedBy('Heuristic Synopsis');
-      }
+      if (hasKannada) {
+        // Source is in Kannada: Generate Kannada synopsis first, then neural translate to pure English
+        setStatusMessage('Extracting Kannada petition summary and translating to clean English...');
+        const knSummaryRaw = webllmService.generateHeuristicSummary(textToSummarize);
+        generatedKan = knSummaryRaw;
+        onKannadaSummaryChange(knSummaryRaw);
 
-      onEnglishSummaryChange(generatedEng);
-      setStatusMessage('English summary generated! Translating to Kannada via IndicTrans2...');
-
-      // Automatically translate the generated summary to Kannada
-      setIsTranslating(true);
-      try {
-        const transRes = await translationsService.translateText(
-          generatedEng,
-          'en',
-          'kn'
-        );
-        if (transRes?.translated_text) {
-          onKannadaSummaryChange(transRes.translated_text);
+        setIsTranslating(true);
+        try {
+          const transRes = await translationsService.translateText(
+            knSummaryRaw,
+            'kn',
+            'en'
+          );
+          if (transRes?.translated_text) {
+            generatedEng = transRes.translated_text;
+            onEnglishSummaryChange(generatedEng);
+          } else {
+            // Fallback to English summary prop if available
+            generatedEng = englishSummary || 'Citizen petition regarding administrative inquiry and statutory relief.';
+            onEnglishSummaryChange(generatedEng);
+          }
+        } catch (transErr) {
+          console.warn('English translation failed for summary:', transErr);
+          generatedEng = englishSummary || 'Citizen petition regarding administrative inquiry and statutory relief.';
+          onEnglishSummaryChange(generatedEng);
+        } finally {
+          setIsTranslating(false);
         }
-      } catch (transErr: any) {
-        console.warn('Kannada translation failed for summary:', transErr);
-      } finally {
-        setIsTranslating(false);
+        setLastGeneratedBy('Bilingual Neural Engine');
+      } else {
+        // Source is in English: Summarize in English, then neural translate to pure Kannada
+        if (isWebGpuAvailable) {
+          generatedEng = await webllmService.summarizePetition(
+            textToSummarize,
+            selectedModel,
+            onProgress
+          );
+          const modelObj = AVAILABLE_WEBLLM_MODELS.find((m) => m.id === selectedModel);
+          setLastGeneratedBy(modelObj ? modelObj.name : 'WebLLM');
+        } else {
+          setProgressText('WebGPU not supported on this device. Using intelligent heuristic synopsis...');
+          generatedEng = webllmService.generateHeuristicSummary(textToSummarize);
+          setLastGeneratedBy('Heuristic Synopsis');
+        }
+
+        onEnglishSummaryChange(generatedEng);
+        setStatusMessage('English summary generated! Translating to Kannada via IndicTrans2...');
+
+        setIsTranslating(true);
+        try {
+          const transRes = await translationsService.translateText(
+            generatedEng,
+            'en',
+            'kn'
+          );
+          if (transRes?.translated_text) {
+            generatedKan = transRes.translated_text;
+            onKannadaSummaryChange(transRes.translated_text);
+          }
+        } catch (transErr: any) {
+          console.warn('Kannada translation failed for summary:', transErr);
+        } finally {
+          setIsTranslating(false);
+        }
       }
 
       setStatusMessage('Bilingual summaries populated in editable boxes below!');

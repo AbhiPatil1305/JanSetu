@@ -7,6 +7,7 @@ import { complaintsService } from '../../services/api/complaints.service';
 import { departmentsService } from '../../services/api/departments.service';
 import { officersService } from '../../services/api/officers.service';
 import { documentsService } from '../../services/api/documents.service';
+import { translationsService } from '../../services/api/translations.service';
 import { parsePetitionText, ParsedPetitionData } from '../../utils/petitionParser';
 import { Department, PoliceStation } from '../../types/department';
 import { User } from '../../types/auth';
@@ -37,6 +38,9 @@ import {
   Building,
   Check,
   FileEdit,
+  Languages,
+  Globe,
+  Loader2,
 } from 'lucide-react';
 
 
@@ -92,6 +96,9 @@ export const RegisterComplaintPage: React.FC = () => {
   const [complaintLanguage, setComplaintLanguage] = useState<'kannada' | 'english' | 'bilingual'>('english');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
+  const [formLanguageMode, setFormLanguageMode] = useState<'en' | 'kn'>('en');
+  const [bilingualData, setBilingualData] = useState<ParsedPetitionData | null>(null);
+  const [fieldTranslating, setFieldTranslating] = useState<Record<string, boolean>>({});
 
   // Dependent cascading selectors
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -116,19 +123,44 @@ export const RegisterComplaintPage: React.FC = () => {
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [docUploadComplete, setDocUploadComplete] = useState(false);
 
-  const applyExtractedDataToForm = (data: ParsedPetitionData, showNotice = false) => {
-    if (data.citizenName) setCitizenName(data.citizenName);
+  const applyExtractedDataToForm = (
+    data: ParsedPetitionData,
+    showNotice = false,
+    langMode: 'en' | 'kn' = formLanguageMode
+  ) => {
+    setBilingualData(data);
+
+    if (langMode === 'kn') {
+      setCitizenName(data.citizenNameKn || data.citizenName || '');
+      setCitizenAddress(data.citizenAddressKn || data.citizenAddress || '');
+      setTaluk(data.taluk || 'Bengaluru South');
+      setVillageLocality(data.villageLocalityKn || data.villageLocality || '');
+      setComplaintTitle(data.complaintTitleKn || data.complaintTitle || '');
+      setComplaintCategory(data.complaintCategoryKn || data.complaintCategory || 'ಸಾಮಾನ್ಯ ನಾಗರಿಕ ಅಹವಾಲು');
+      setIncidentLocation(data.incidentLocationKn || data.incidentLocation || '');
+      setRequestedAction(data.requestedActionKn || data.requestedAction || '');
+      setComplaintDesc(data.complaintDescKn || data.complaintDesc || '');
+      if (data.assignmentInstructionsKn) {
+        setAssignmentInstructions(data.assignmentInstructionsKn);
+      }
+    } else {
+      setCitizenName(data.citizenName || '');
+      setCitizenAddress(data.citizenAddress || '');
+      setTaluk(data.taluk || 'Bengaluru South');
+      setVillageLocality(data.villageLocality || '');
+      setComplaintTitle(data.complaintTitle || '');
+      setComplaintCategory(data.complaintCategory || 'General Grievance');
+      setIncidentLocation(data.incidentLocation || '');
+      setRequestedAction(data.requestedAction || '');
+      setComplaintDesc(data.complaintDesc || '');
+      if (data.assignmentInstructionsEn) {
+        setAssignmentInstructions(data.assignmentInstructionsEn);
+      }
+    }
+
     if (data.citizenPhone) setCitizenPhone(data.citizenPhone);
     if (data.citizenEmail) setCitizenEmail(data.citizenEmail);
-    if (data.citizenAddress) setCitizenAddress(data.citizenAddress);
-    if (data.taluk) setTaluk(data.taluk);
-    if (data.villageLocality) setVillageLocality(data.villageLocality);
-    if (data.complaintTitle) setComplaintTitle(data.complaintTitle);
-    if (data.complaintCategory) setComplaintCategory(data.complaintCategory);
     if (data.incidentDate) setIncidentDate(data.incidentDate);
-    if (data.incidentLocation) setIncidentLocation(data.incidentLocation);
-    if (data.complaintDesc) setComplaintDesc(data.complaintDesc);
-    if (data.requestedAction) setRequestedAction(data.requestedAction);
     if (data.complaintLanguage) setComplaintLanguage(data.complaintLanguage);
     if (data.englishSummary) setEnglishSummary(data.englishSummary);
     if (data.kannadaSummary) setKannadaSummary(data.kannadaSummary);
@@ -173,12 +205,21 @@ export const RegisterComplaintPage: React.FC = () => {
     }
 
     // Pre-fill assignment directives if not already set
-    if (!assignmentInstructions && (data.complaintCategory || data.requestedAction)) {
-      const cat = data.complaintCategory || 'grievance';
-      const loc = data.incidentLocation || data.villageLocality || 'jurisdiction area';
-      const rel = data.requestedAction ? `Citizen relief sought: "${data.requestedAction}".` : '';
+    if (
+      !assignmentInstructions &&
+      !data.assignmentInstructionsEn &&
+      !data.assignmentInstructionsKn &&
+      (data.complaintCategory || data.requestedAction)
+    ) {
+      const cat = langMode === 'kn' ? (data.complaintCategoryKn || 'ಅಹವಾಲು') : (data.complaintCategory || 'grievance');
+      const loc = langMode === 'kn' ? (data.incidentLocationKn || data.villageLocalityKn || 'ವ್ಯಾಪ್ತಿಯಲ್ಲಿ') : (data.incidentLocation || data.villageLocality || 'jurisdiction area');
+      const rel = langMode === 'kn'
+        ? (data.requestedActionKn ? `ಕೋರಿದ ಪರಿಹಾರ: "${data.requestedActionKn}".` : '')
+        : (data.requestedAction ? `Citizen relief sought: "${data.requestedAction}".` : '');
       setAssignmentInstructions(
-        `Urgent field inquiry regarding ${cat} at ${loc}. Verify complainant statements, inspect locus, and submit statutory Action Taken Report (ATR) within prescribed follow-up schedule. ${rel}`.trim()
+        langMode === 'kn'
+          ? `${loc} ಸಂಬಂಧಿಸಿದಂತೆ ${cat} ಕುರಿತು ತುರ್ತು ಸ್ಥಳ ಪರಿಶೀಲನೆ ನಡೆಸಿ ಕ್ರಮ ಕೈಗೊಂಡ ವರದಿ ಸಲ್ಲಿಸುವುದು. ${rel}`.trim()
+          : `Urgent field inquiry regarding ${cat} at ${loc}. Verify complainant statements, inspect locus, and submit statutory Action Taken Report (ATR). ${rel}`.trim()
       );
     }
 
@@ -187,9 +228,53 @@ export const RegisterComplaintPage: React.FC = () => {
     if (showNotice) {
       showToast(
         'Form Fields Auto-Filled',
-        'Citizen contact, grievance classification, and incident details successfully populated from document.',
+        langMode === 'kn'
+          ? 'ಅರ್ಜಿಯ ವಿವರಗಳನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಕನ್ನಡದಲ್ಲಿ ಭರ್ತಿ ಮಾಡಲಾಗಿದೆ.'
+          : 'Citizen contact, grievance classification, and incident details successfully populated from document.',
         'success'
       );
+    }
+  };
+
+  const handleSwitchFormLanguage = (targetMode: 'en' | 'kn') => {
+    if (targetMode === formLanguageMode) return;
+    setFormLanguageMode(targetMode);
+    if (bilingualData) {
+      applyExtractedDataToForm(bilingualData, false, targetMode);
+      showToast(
+        targetMode === 'kn' ? 'ಭಾಷೆ ಬದಲಾಯಿಸಲಾಗಿದೆ' : 'Language Switched',
+        targetMode === 'kn'
+          ? 'ನಮೂನೆಯ ವಿವರಗಳನ್ನು ಅಧಿಕೃತ ಕನ್ನಡ ರೂಪಕ್ಕೆ ಬದಲಾಯಿಸಲಾಗಿದೆ.'
+          : 'Form field values switched to English official record mode.',
+        'info'
+      );
+    }
+  };
+
+  const handleTranslateField = async (
+    fieldKey: string,
+    currentVal: string,
+    setter: (val: string) => void
+  ) => {
+    if (!currentVal || !currentVal.trim()) return;
+    setFieldTranslating((prev) => ({ ...prev, [fieldKey]: true }));
+    try {
+      const hasKannada = /[\u0C80-\u0CFF]/.test(currentVal);
+      const src = hasKannada ? 'kn' : 'en';
+      const tgt = hasKannada ? 'en' : 'kn';
+      const res = await translationsService.translateText(currentVal.trim(), src, tgt);
+      if (res?.translated_text) {
+        setter(res.translated_text);
+        showToast(
+          'Field Translated',
+          `Translated from ${src === 'kn' ? 'Kannada' : 'English'} to ${tgt === 'kn' ? 'Kannada' : 'English'}.`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      showToast('Translation Notice', err?.message || 'Could not translate field at this time.', 'warning');
+    } finally {
+      setFieldTranslating((prev) => ({ ...prev, [fieldKey]: false }));
     }
   };
 
@@ -200,14 +285,16 @@ export const RegisterComplaintPage: React.FC = () => {
       return;
     }
     const parsed = parsePetitionText(textToParse, englishSummary);
-    applyExtractedDataToForm(parsed, showNotice);
+    setBilingualData(parsed);
+    applyExtractedDataToForm(parsed, showNotice, formLanguageMode);
   };
 
   const handleProceedToCompleteForm = () => {
     const textToParse = reviewedOcr || rawOcr;
     if (textToParse && textToParse.trim()) {
       const parsed = parsePetitionText(textToParse, englishSummary);
-      applyExtractedDataToForm(parsed, true);
+      setBilingualData(parsed);
+      applyExtractedDataToForm(parsed, true, formLanguageMode);
     }
     setCurrentStage(3);
   };
@@ -326,20 +413,36 @@ export const RegisterComplaintPage: React.FC = () => {
         // Auto-extract structured form entities from petition text
         const parsed = parsePetitionText(extracted);
         if (res.extracted_fields) {
-          if (res.extracted_fields.citizen_name) parsed.citizenName = res.extracted_fields.citizen_name;
-          if (res.extracted_fields.phone) parsed.citizenPhone = res.extracted_fields.phone;
-          if (res.extracted_fields.email) parsed.citizenEmail = res.extracted_fields.email;
-          if (res.extracted_fields.address) parsed.citizenAddress = res.extracted_fields.address;
-          if (res.extracted_fields.taluk) parsed.taluk = res.extracted_fields.taluk;
-          if (res.extracted_fields.village_locality) parsed.villageLocality = res.extracted_fields.village_locality;
-          if (res.extracted_fields.title) parsed.complaintTitle = res.extracted_fields.title;
-          if (res.extracted_fields.category) parsed.complaintCategory = res.extracted_fields.category;
-          if (res.extracted_fields.incident_date) parsed.incidentDate = res.extracted_fields.incident_date;
-          if (res.extracted_fields.incident_location) parsed.incidentLocation = res.extracted_fields.incident_location;
-          if (res.extracted_fields.requested_action) parsed.requestedAction = res.extracted_fields.requested_action;
-          if (res.extracted_fields.language) parsed.complaintLanguage = res.extracted_fields.language;
+          const ef = res.extracted_fields;
+          if (ef.citizen_name) parsed.citizenName = ef.citizen_name;
+          if (ef.citizen_name_kn) parsed.citizenNameKn = ef.citizen_name_kn;
+          if (ef.phone) parsed.citizenPhone = ef.phone;
+          if (ef.email) parsed.citizenEmail = ef.email;
+          if (ef.address) parsed.citizenAddress = ef.address;
+          if (ef.address_kn) parsed.citizenAddressKn = ef.address_kn;
+          if (ef.district) parsed.district = ef.district;
+          if (ef.district_kn) parsed.districtKn = ef.district_kn;
+          if (ef.taluk) parsed.taluk = ef.taluk;
+          if (ef.taluk_kn) parsed.talukKn = ef.taluk_kn;
+          if (ef.village_locality) parsed.villageLocality = ef.village_locality;
+          if (ef.village_locality_kn) parsed.villageLocalityKn = ef.village_locality_kn;
+          if (ef.title) parsed.complaintTitle = ef.title;
+          if (ef.title_kn) parsed.complaintTitleKn = ef.title_kn;
+          if (ef.category) parsed.complaintCategory = ef.category;
+          if (ef.category_kn) parsed.complaintCategoryKn = ef.category_kn;
+          if (ef.incident_date) parsed.incidentDate = ef.incident_date;
+          if (ef.incident_location) parsed.incidentLocation = ef.incident_location;
+          if (ef.incident_location_kn) parsed.incidentLocationKn = ef.incident_location_kn;
+          if (ef.description) parsed.complaintDesc = ef.description;
+          if (ef.description_kn) parsed.complaintDescKn = ef.description_kn;
+          if (ef.requested_action) parsed.requestedAction = ef.requested_action;
+          if (ef.requested_action_kn) parsed.requestedActionKn = ef.requested_action_kn;
+          if (ef.assignment_instructions_en) parsed.assignmentInstructionsEn = ef.assignment_instructions_en;
+          if (ef.assignment_instructions_kn) parsed.assignmentInstructionsKn = ef.assignment_instructions_kn;
+          if (ef.language) parsed.complaintLanguage = ef.language;
         }
-        applyExtractedDataToForm(parsed, false);
+        setBilingualData(parsed);
+        applyExtractedDataToForm(parsed, false, formLanguageMode);
 
         if (res.ocr_status === 'FAILED' && res.ocr_error) {
           showToast('OCR Notice', res.ocr_error, 'warning');
@@ -359,7 +462,8 @@ export const RegisterComplaintPage: React.FC = () => {
             setRawOcr(textContent);
             setReviewedOcr(textContent);
             const parsed = parsePetitionText(textContent);
-            applyExtractedDataToForm(parsed, false);
+            setBilingualData(parsed);
+            applyExtractedDataToForm(parsed, false, formLanguageMode);
           };
           reader.readAsText(droppedFile);
         } else {
@@ -868,12 +972,20 @@ export const RegisterComplaintPage: React.FC = () => {
                   <p className="font-semibold text-slate-800 truncate">{complaintCategory || 'General Grievance'}</p>
                 </div>
                 <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Jurisdiction Taluk</span>
+                  <p className="font-semibold text-slate-800 truncate">{taluk || 'Bengaluru South'}</p>
+                </div>
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs sm:col-span-2">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Residential Address</span>
+                  <p className="font-semibold text-slate-800 truncate">{citizenAddress || <span className="text-slate-400 italic">Not detected</span>}</p>
+                </div>
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Incident Date</span>
                   <p className="font-semibold text-slate-800 font-mono truncate">{incidentDate || <span className="text-slate-400 italic">Not detected</span>}</p>
                 </div>
                 <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs sm:col-span-2">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Incident Location / Taluk</span>
-                  <p className="font-semibold text-slate-800 truncate">{incidentLocation || villageLocality ? `${incidentLocation || villageLocality}, ${taluk}` : <span className="text-slate-400 italic">Not detected</span>}</p>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Incident Location</span>
+                  <p className="font-semibold text-slate-800 truncate">{incidentLocation || (villageLocality ? `${villageLocality}, ${taluk}` : taluk) || <span className="text-slate-400 italic">Not detected</span>}</p>
                 </div>
               </div>
             </CardContent>
@@ -938,6 +1050,45 @@ export const RegisterComplaintPage: React.FC = () => {
                 </div>
               ) : null}
 
+              {/* Form Language Toggle Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-slate-50 via-amber-50/30 to-slate-50 rounded-xl border border-slate-200">
+                <div className="flex items-center gap-2.5">
+                  <Languages className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <div>
+                    <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      Form Language Mode: <span className="text-amber-800">{formLanguageMode === 'en' ? 'English (Official Record)' : 'ಕನ್ನಡ (Original Kannada)'}</span>
+                    </span>
+                    <p className="text-[11px] text-slate-500">
+                      Toggle to fill all fields with unmixed English or original Kannada representations.
+                    </p>
+                  </div>
+                </div>
+                <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchFormLanguage('en')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      formLanguageMode === 'en'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>English Mode</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchFormLanguage('kn')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      formLanguageMode === 'kn'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>ಕನ್ನಡ ಮೋಡ್</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Section 1: Citizen Details */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2 pb-2 border-b border-slate-100">
@@ -990,7 +1141,25 @@ export const RegisterComplaintPage: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="sm:col-span-2">
-                    <label className="font-semibold text-slate-700 block mb-1">Residential Address</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-semibold text-slate-700 block">Residential Address</label>
+                      {citizenAddress && (
+                        <button
+                          type="button"
+                          disabled={fieldTranslating['address']}
+                          onClick={() => handleTranslateField('address', citizenAddress, setCitizenAddress)}
+                          className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 font-medium"
+                          title="Translate address between Kannada and English"
+                        >
+                          {fieldTranslating['address'] ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                          ) : (
+                            <Globe className="w-3 h-3" />
+                          )}
+                          <span>Translate EN/KN</span>
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={citizenAddress}
@@ -1007,10 +1176,11 @@ export const RegisterComplaintPage: React.FC = () => {
                       onChange={(e) => setTaluk(e.target.value)}
                       className="w-full p-2.5 border border-slate-200 rounded-lg text-slate-900 focus:border-slate-800 outline-none text-sm bg-white"
                     >
-                      <option value="Bengaluru South">Bengaluru South</option>
-                      <option value="Bengaluru North">Bengaluru North</option>
-                      <option value="Bengaluru East">Bengaluru East</option>
-                      <option value="Anekal">Anekal</option>
+                      <option value="Bengaluru South">Bengaluru South (ಬೆಂಗಳೂರು ದಕ್ಷಿಣ)</option>
+                      <option value="Bengaluru North">Bengaluru North (ಬೆಂಗಳೂರು ಉತ್ತರ)</option>
+                      <option value="Bengaluru East">Bengaluru East (ಬೆಂಗಳೂರು ಪೂರ್ವ)</option>
+                      <option value="Anekal">Anekal (ಆನೇಕಲ್)</option>
+                      <option value="Yelahanka">Yelahanka (ಯಲಹಂಕ)</option>
                     </select>
                   </div>
                 </div>
@@ -1024,9 +1194,27 @@ export const RegisterComplaintPage: React.FC = () => {
                 </h4>
 
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">
-                    Grievance Title <span className="text-rose-500">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700 block">
+                      Grievance Title <span className="text-rose-500">*</span>
+                    </label>
+                    {complaintTitle && (
+                      <button
+                        type="button"
+                        disabled={fieldTranslating['title']}
+                        onClick={() => handleTranslateField('title', complaintTitle, setComplaintTitle)}
+                        className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 font-medium"
+                        title="Translate title between Kannada and English"
+                      >
+                        {fieldTranslating['title'] ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                        ) : (
+                          <Globe className="w-3 h-3" />
+                        )}
+                        <span>Translate EN/KN</span>
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
@@ -1060,7 +1248,25 @@ export const RegisterComplaintPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="font-semibold text-slate-700 block mb-1">Incident Location</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-semibold text-slate-700 block">Incident Location</label>
+                      {incidentLocation && (
+                        <button
+                          type="button"
+                          disabled={fieldTranslating['location']}
+                          onClick={() => handleTranslateField('location', incidentLocation, setIncidentLocation)}
+                          className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 font-medium"
+                          title="Translate location between Kannada and English"
+                        >
+                          {fieldTranslating['location'] ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                          ) : (
+                            <Globe className="w-3 h-3" />
+                          )}
+                          <span>Translate EN/KN</span>
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={incidentLocation}
@@ -1072,9 +1278,27 @@ export const RegisterComplaintPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">
-                    Detailed Complaint Statement
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700 block">
+                      Detailed Complaint Statement
+                    </label>
+                    {complaintDesc && (
+                      <button
+                        type="button"
+                        disabled={fieldTranslating['desc']}
+                        onClick={() => handleTranslateField('desc', complaintDesc, setComplaintDesc)}
+                        className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 font-medium"
+                        title="Translate statement between Kannada and English"
+                      >
+                        {fieldTranslating['desc'] ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                        ) : (
+                          <Globe className="w-3 h-3" />
+                        )}
+                        <span>Translate EN/KN</span>
+                      </button>
+                    )}
+                  </div>
                   <textarea
                     rows={3}
                     value={complaintDesc}
@@ -1084,9 +1308,27 @@ export const RegisterComplaintPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">
-                    Relief / Action Demanded by Citizen
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700 block">
+                      Relief / Action Demanded by Citizen
+                    </label>
+                    {requestedAction && (
+                      <button
+                        type="button"
+                        disabled={fieldTranslating['relief']}
+                        onClick={() => handleTranslateField('relief', requestedAction, setRequestedAction)}
+                        className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 font-medium"
+                        title="Translate relief demand between Kannada and English"
+                      >
+                        {fieldTranslating['relief'] ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                        ) : (
+                          <Globe className="w-3 h-3" />
+                        )}
+                        <span>Translate EN/KN</span>
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={requestedAction}
@@ -1197,9 +1439,27 @@ export const RegisterComplaintPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">
-                    Directives / Assignment Instructions for Officer
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700 block">
+                      Directives / Assignment Instructions for Officer
+                    </label>
+                    {assignmentInstructions && (
+                      <button
+                        type="button"
+                        disabled={fieldTranslating['directives']}
+                        onClick={() => handleTranslateField('directives', assignmentInstructions, setAssignmentInstructions)}
+                        className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 font-medium"
+                        title="Translate directives between Kannada and English"
+                      >
+                        {fieldTranslating['directives'] ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                        ) : (
+                          <Globe className="w-3 h-3" />
+                        )}
+                        <span>Translate EN/KN</span>
+                      </button>
+                    )}
+                  </div>
                   <textarea
                     rows={2}
                     value={assignmentInstructions}

@@ -163,18 +163,30 @@ export class DocumentsService {
     languages: string;
     extracted_fields?: {
       citizen_name?: string;
+      citizen_name_kn?: string;
       phone?: string;
       email?: string;
       address?: string;
+      address_kn?: string;
       district?: string;
+      district_kn?: string;
       taluk?: string;
+      taluk_kn?: string;
       village_locality?: string;
+      village_locality_kn?: string;
       title?: string;
+      title_kn?: string;
       category?: string;
+      category_kn?: string;
       incident_date?: string;
       incident_location?: string;
+      incident_location_kn?: string;
       description?: string;
+      description_kn?: string;
       requested_action?: string;
+      requested_action_kn?: string;
+      assignment_instructions_en?: string;
+      assignment_instructions_kn?: string;
       language?: 'kannada' | 'english' | 'bilingual';
       confidence_scores?: {
         citizen?: 'HIGH' | 'NEEDS_REVIEW' | 'MISSING';
