@@ -7,6 +7,7 @@ import { complaintsService } from '../../services/api/complaints.service';
 import { departmentsService } from '../../services/api/departments.service';
 import { officersService } from '../../services/api/officers.service';
 import { documentsService } from '../../services/api/documents.service';
+import { translationsService } from '../../services/api/translations.service';
 import { parsePetitionText, ParsedPetitionData } from '../../utils/petitionParser';
 import { Department, PoliceStation } from '../../types/department';
 import { User } from '../../types/auth';
@@ -107,7 +108,19 @@ export const RegisterComplaintPage: React.FC = () => {
     if (data.requestedAction) setRequestedAction(data.requestedAction);
     if (data.complaintLanguage) setComplaintLanguage(data.complaintLanguage);
     if (data.englishSummary) setEnglishSummary(data.englishSummary);
-    if (data.kannadaSummary) setKannadaSummary(data.kannadaSummary);
+    if (data.kannadaSummary) {
+      setKannadaSummary(data.kannadaSummary);
+    } else if (data.englishSummary) {
+      // Use translation module directly to translate English summary to Kannada
+      translationsService
+        .translateText(data.englishSummary, 'en', 'kn')
+        .then((res) => {
+          if (res?.translated_text) {
+            setKannadaSummary(res.translated_text);
+          }
+        })
+        .catch(() => {});
+    }
     if (data.confidenceScores) setConfidenceScores(data.confidenceScores);
     setHasAutoFilled(true);
 

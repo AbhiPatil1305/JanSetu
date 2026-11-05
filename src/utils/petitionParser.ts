@@ -28,45 +28,6 @@ export interface ParsedPetitionData {
   };
 }
 
-export const CATEGORY_MAP_EN_TO_KN: Record<string, string> = {
-  'Public Nuisance & Noise Pollution': 'ಸಾರ್ವಜನಿಕ ತೊಂದರೆ ಮತ್ತು ಶಬ್ದ ಮಾಲಿನ್ಯ',
-  'Cyber Financial Fraud': 'ಸೈಬರ್ ಹಣಕಾಸು ವಂಚನೆ',
-  'Land Encroachment & Illegal Occupation': 'ಭೂ ಒತ್ತುವರಿ ಮತ್ತು ಅಕ್ರಮ ಕಬಳಿಕೆ',
-  'Theft & Burglary': 'ಕಳ್ಳತನ ಮತ್ತು ದರೋಡೆ',
-  'Threat & Harassment': 'ಬೆದರಿಕೆ ಮತ್ತು ಕಿರುಕುಳ',
-  'Traffic & Road Obstruction': 'ಸಂಚಾರ ಮತ್ತು ರಸ್ತೆ ತಡೆ',
-  'Civic Amenities & Sanitation': 'ನಾಗರಿಕ ಸೌಲಭ್ಯಗಳು ಮತ್ತು ಒಳಚರಂಡಿ',
-  'General Grievance': 'ಸಾಮಾನ್ಯ ಕುಂದುಕೊರತೆ ಅರ್ಜಿ',
-};
-
-export const LOCALITY_MAP_EN_TO_KN: Record<string, string> = {
-  Koramangala: 'ಕೋರಮಂಗಲ',
-  Indiranagar: 'ಇಂದಿರಾನಗರ',
-  Agara: 'ಆಗರ',
-  Whitefield: 'ವೈಟ್‌ಫೀಲ್ಡ್',
-  'HSR Layout': 'ಎಚ್.ಎಸ್.ಆರ್ ಬಡಾವಣೆ',
-  Jayanagar: 'ಜಯನಗರ',
-  'BTM Layout': 'ಬಿ.ಟಿ.ಎಂ ಬಡಾವಣೆ',
-  'Electronic City': 'ಎಲೆಕ್ಟ್ರಾನಿಕ್ ಸಿಟಿ',
-  Bellandur: 'ಬೆಳ್ಳಂದೂರು',
-  Marathahalli: 'ಮಾರತ್‌ಹಳ್ಳಿ',
-  Hebbal: 'ಹೆಬ್ಬಾಳ',
-  Yelahanka: 'ಯಲಹಂಕ',
-  Malleshwaram: 'ಮಲ್ಲೇಶ್ವರಂ',
-  Rajajinagar: 'ರಾಜಾಜಿನಗರ',
-  Basavanagudi: 'ಬಸವನಗುಡಿ',
-  Banashankari: 'ಬನಶಂಕರಿ',
-  Shivajinagar: 'ಶಿವಾಜಿನಗರ',
-  'Sarjapur Road': 'ಸರ್ಜಾಪುರ ರಸ್ತೆ',
-  'MG Road': 'ಎಂ.ಜಿ ರಸ್ತೆ',
-  HAL: 'ಎಚ್.ಎ.ಎಲ್',
-  Anekal: 'ಆನೇಕಲ್',
-  'Bengaluru South': 'ಬೆಂಗಳೂರು ದಕ್ಷಿಣ',
-  'Bengaluru North': 'ಬೆಂಗಳೂರು ಉತ್ತರ',
-  'Bengaluru East': 'ಬೆಂಗಳೂರು ಪೂರ್ವ',
-  'Bengaluru Urban': 'ಬೆಂಗಳೂರು ನಗರ',
-};
-
 const TALUKS = [
   'Bengaluru South',
   'Bengaluru North',
@@ -97,59 +58,6 @@ const LOCALITIES = [
   'MG Road',
   'HAL',
 ];
-
-// Kannada phonetic transliteration table for preserving names without leaving Kannada script in English
-const VOWELS: Record<string, string> = {
-  'ಅ': 'a', 'ಆ': 'aa', 'ಇ': 'i', 'ಈ': 'ee', 'ಉ': 'u', 'ಊ': 'oo',
-  'ಋ': 'ru', 'ಎ': 'e', 'ಏ': 'ee', 'ಐ': 'ai', 'ಒ': 'o', 'ಓ': 'oo', 'ಔ': 'au',
-  'ಂ': 'm', 'ಃ': 'h',
-};
-const MATRAS: Record<string, string> = {
-  'ಾ': 'aa', 'ಿ': 'i', 'ೀ': 'ee', 'ು': 'u', 'ೂ': 'oo',
-  'ೃ': 'ru', 'ೆ': 'e', 'ೇ': 'ee', 'ೈ': 'ai', 'ೊ': 'o', 'ೋ': 'oo', 'ೌ': 'au',
-  '್': '',
-};
-const CONSONANTS: Record<string, string> = {
-  'ಕ': 'k', 'ಖ': 'kh', 'ಗ': 'g', 'ಘ': 'gh', 'ಙ': 'ng',
-  'ಚ': 'ch', 'ಛ': 'chh', 'ಜ': 'j', 'ಝ': 'jh', 'ಞ': 'ny',
-  'ಟ': 't', 'ಠ': 'th', 'ಡ': 'd', 'ಢ': 'dh', 'ಣ': 'n',
-  'ತ': 't', 'ಥ': 'th', 'ದ': 'd', 'ಧ': 'dh', 'ನ': 'n',
-  'ಪ': 'p', 'ಫ': 'ph', 'ಬ': 'b', 'ಭ': 'bh', 'ಮ': 'm',
-  'ಯ': 'y', 'ರ': 'r', 'ಲ': 'l', 'ವ': 'v', 'ಶ': 'sh', 'ಷ': 'sh', 'ಸ': 's', 'ಹ': 'h', 'ಳ': 'l',
-};
-
-export function transliterateKannadaToEnglish(text: string): string {
-  if (!text) return '';
-  return text.replace(/[\u0C80-\u0CFF]+/g, (match) => {
-    const out: string[] = [];
-    let i = 0;
-    const n = match.length;
-    while (i < n) {
-      const char = match[i];
-      if (VOWELS[char]) {
-        out.push(VOWELS[char]);
-        i++;
-      } else if (CONSONANTS[char]) {
-        const base = CONSONANTS[char];
-        if (i + 1 < n && MATRAS[match[i + 1]] !== undefined) {
-          out.push(base + MATRAS[match[i + 1]]);
-          i += 2;
-        } else {
-          out.push(base + 'a');
-          i++;
-        }
-      } else {
-        out.push(char);
-        i++;
-      }
-    }
-    let res = out.join('');
-    if (res.endsWith('a') && res.length > 4) {
-      res = res.slice(0, -1);
-    }
-    return res.charAt(0).toUpperCase() + res.slice(1);
-  });
-}
 
 function normalizeDate(rawDateStr: string): string {
   const cleaned = rawDateStr.trim().replace(/[-.]/g, '/');
@@ -302,11 +210,7 @@ export function parsePetitionText(text: string): ParsedPetitionData {
     complaintTitle = subMatch[1].trim().replace(/^["'\s]+|["'\s.]+$/g, '');
   }
   if (!complaintTitle) {
-    if (complaintLanguage === 'kannada') {
-      complaintTitle = `${CATEGORY_MAP_EN_TO_KN[complaintCategory] || 'ಕುಂದುಕೊರತೆ'} ಕುರಿತು ಅರ್ಜಿ`;
-    } else {
-      complaintTitle = `Petition regarding ${complaintCategory.toLowerCase()}`;
-    }
+    complaintTitle = `Petition regarding ${complaintCategory.toLowerCase()}`;
   }
 
   // 8. Extract Taluk & Locality
@@ -327,14 +231,6 @@ export function parsePetitionText(text: string): ParsedPetitionData {
     if (new RegExp(`\\b${loc}\\b`, 'i').test(cleanText)) {
       villageLocality = loc;
       break;
-    }
-  }
-  if (!villageLocality) {
-    for (const [enLoc, knLoc] of Object.entries(LOCALITY_MAP_EN_TO_KN)) {
-      if (cleanText.includes(knLoc)) {
-        villageLocality = enLoc;
-        break;
-      }
     }
   }
 
@@ -375,26 +271,16 @@ export function parsePetitionText(text: string): ParsedPetitionData {
     }
   }
 
-  // 12. PURE UNMIXED SUMMARIES
+  // 12. Extracted Summaries
   const complaintDesc = cleanText.slice(0, 1000).trim();
-
-  // English Summary (strictly pure English - transliterates any residual Kannada names/locations)
-  const citizenNameEn = transliterateKannadaToEnglish(citizenName);
-  const locationEn = transliterateKannadaToEnglish(incidentLocation || villageLocality || 'Bengaluru Urban');
-  const actionEn = transliterateKannadaToEnglish(requestedAction).slice(0, 120);
+  const locationDesc = incidentLocation || villageLocality || 'Bengaluru Urban';
 
   const englishSummary = `${
-    citizenNameEn ? `Petition from ${citizenNameEn}` : 'Citizen petition'
-  } regarding ${complaintCategory.toLowerCase()} at ${locationEn}. Relief sought: ${actionEn || 'Immediate site inspection and inquiry'}.`;
+    citizenName ? `Petition from ${citizenName}` : 'Citizen petition'
+  } regarding ${complaintCategory.toLowerCase()} at ${locationDesc}. Relief sought: ${requestedAction || 'Immediate site inspection and inquiry'}.`;
 
-  // Kannada Summary (strictly pure Kannada - no English words)
-  const catKn = CATEGORY_MAP_EN_TO_KN[complaintCategory] || 'ಕುಂದುಕೊರತೆ ಅರ್ಜಿ';
-  const locKn = LOCALITY_MAP_EN_TO_KN[villageLocality] || LOCALITY_MAP_EN_TO_KN[taluk] || 'ಬೆಂಗಳೂರು ನಗರ';
-  const citizenNameKn = /[\u0C80-\u0CFF]/.test(citizenName) ? citizenName : '';
-
-  const kannadaSummary = `${
-    citizenNameKn ? `${citizenNameKn} ಅವರಿಂದ ` : ''
-  }${locKn} ವ್ಯಾಪ್ತಿಯಲ್ಲಿ ${catKn} ಕುರಿತು ಸಲ್ಲಿಕೆಯಾದ ಅಧಿಕೃತ ನಾಗರಿಕ ಅರ್ಜಿ. ಕೋರಿದ ಪರಿಹಾರ: ಸಂಬಂಧಪಟ್ಟ ಅಧಿಕಾರಿಗಳು ಸ್ಥಳ ಪರಿಶೀಲನೆ ನಡೆಸಿ ತುರ್ತು ಕಾನೂನು ಕ್ರಮ ಕೈಗೊಳ್ಳುವುದು.`;
+  // Kannada Summary is left to be translated directly by the translation module
+  const kannadaSummary = '';
 
   // 13. Confidence Scores
   const citizenConf = citizenName && citizenPhone ? 'HIGH' : citizenName || citizenPhone ? 'NEEDS_REVIEW' : 'MISSING';

@@ -93,44 +93,30 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
         const modelObj = AVAILABLE_WEBLLM_MODELS.find((m) => m.id === selectedModel);
         setLastGeneratedBy(modelObj ? modelObj.name : 'WebLLM');
 
-        // Generate pure Kannada summary directly with WebLLM to avoid mixed language
-        try {
-          generatedKan = await webllmService.summarizePetitionInKannada(
-            textToSummarize,
-            selectedModel,
-            onProgress
-          );
-        } catch {
-          generatedKan = webllmService.generateHeuristicKannadaSummary(textToSummarize);
-        }
       } else {
         // Graceful fallback for browsers without WebGPU
-        setProgressText('Generating offline administrative synopsis...');
+        setProgressText('Generating administrative synopsis...');
         generatedEng = webllmService.generateHeuristicSummary(textToSummarize);
-        generatedKan = webllmService.generateHeuristicKannadaSummary(textToSummarize);
         setLastGeneratedBy('Heuristic Synopsis');
       }
 
       onEnglishSummaryChange(generatedEng);
-      if (generatedKan) {
-        onKannadaSummaryChange(generatedKan);
-      } else {
-        // Fallback to backend translation if needed
-        setIsTranslating(true);
-        try {
-          const transRes = await translationsService.translateText(
-            generatedEng,
-            'en',
-            'kn'
-          );
-          if (transRes?.translated_text) {
-            onKannadaSummaryChange(transRes.translated_text);
-          }
-        } catch (transErr: any) {
-          console.warn('Kannada translation fallback notice:', transErr);
-        } finally {
-          setIsTranslating(false);
+
+      // Translate directly using translation module
+      setIsTranslating(true);
+      try {
+        const transRes = await translationsService.translateText(
+          generatedEng,
+          'en',
+          'kn'
+        );
+        if (transRes?.translated_text) {
+          onKannadaSummaryChange(transRes.translated_text);
         }
+      } catch (transErr: any) {
+        console.warn('Kannada translation module notice:', transErr);
+      } finally {
+        setIsTranslating(false);
       }
 
       setStatusMessage('Bilingual summaries populated in editable boxes below!');
