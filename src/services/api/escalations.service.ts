@@ -1,7 +1,7 @@
 import { EscalationRequest, EscalationStatus } from '../../types/escalation';
 import { User } from '../../types/auth';
 import { mockStorage } from '../mock/mockStorage';
-import { apiClient, delay, ApiError, USE_MOCK_API } from './client';
+import { apiClient, ApiError, delay, USE_MOCK_API, getCurrentBackendRole } from './client';
 import { BackendGrievanceListResponse, PaginatedGrievanceResponse } from './complaints.service';
 
 export interface BackendEscalation {
@@ -38,6 +38,11 @@ class EscalationsService {
       return list;
     }
 
+    const backendRole = getCurrentBackendRole();
+    if (backendRole === 'DATA_ENTRY_OPERATOR') {
+      return [];
+    }
+
     const params: Record<string, any> = {
       page: 1,
       page_size: 50,
@@ -46,42 +51,50 @@ class EscalationsService {
     else if (status === 'APPROVED') params.status = 'RESOLVED';
     else if (status === 'REJECTED') params.status = 'DISMISSED';
 
-    const escData = await apiClient.get<PaginatedEscalationResponse>('/escalations', { params });
+    try {
+      const escData = await apiClient.get<PaginatedEscalationResponse>('/escalations', { params });
 
-    // Fetch grievances for titles
-    const grievancesData = await apiClient.get<PaginatedGrievanceResponse>('/grievances', {
-      params: { page_size: 50 },
-    });
-    const grievanceMap = new Map<string, BackendGrievanceListResponse>();
-    (grievancesData.items || []).forEach((g) => grievanceMap.set(g.id, g));
+      // Fetch grievances for titles
+      const grievancesData = await apiClient.get<PaginatedGrievanceResponse>('/grievances', {
+        params: { page_size: 50 },
+      });
+      const grievanceMap = new Map<string, BackendGrievanceListResponse>();
+      (grievancesData.items || []).forEach((g) => grievanceMap.set(g.id, g));
 
-    return (escData.items || []).map((e) => {
-      const g = grievanceMap.get(e.grievance_id);
-      let mappedStatus: EscalationStatus = 'PENDING';
-      if (e.status === 'RESOLVED') mappedStatus = 'APPROVED';
-      else if (e.status === 'DISMISSED') mappedStatus = 'REJECTED';
+      return (escData.items || []).map((e) => {
+        const g = grievanceMap.get(e.grievance_id);
+        let mappedStatus: EscalationStatus = 'PENDING';
+        if (e.status === 'RESOLVED') mappedStatus = 'APPROVED';
+        else if (e.status === 'DISMISSED') mappedStatus = 'REJECTED';
 
-      return {
-        id: e.id,
-        complaintId: g?.grievance_number || e.grievance_id,
-        complaintTitle: g?.title || 'Escalated Grievance',
-        departmentName: 'Police Department',
-        stationName: 'Central Police Station',
-        officerId: e.escalated_from_user_id || 'officer',
-        officerName: 'Inspector Ramesh Patil',
-        requestingPaId: e.escalated_to_user_id,
-        requestingPaName: 'Smt. Lakshmi Devi, KAS',
-        requestDate: e.escalated_at ? e.escalated_at.split('T')[0] : e.created_at.split('T')[0],
-        reason: e.reason,
-        remarks: e.reason,
-        daysOverdue: 4,
-        previousRemindersCount: 2,
-        status: mappedStatus,
-        decisionRemarks: e.resolution_notes || undefined,
-        decidedBy: e.resolved_at ? 'DC Main Admin' : undefined,
-        decisionDate: e.resolved_at ? e.resolved_at.split('T')[0] : undefined,
-      };
-    });
+        return {
+          id: e.id,
+          complaintId: g?.grievance_number || e.grievance_id,
+          complaintTitle: g?.title || 'Escalated Grievance',
+          departmentName: 'Police Department',
+          stationName: 'Central Police Station',
+          officerId: e.escalated_from_user_id || 'officer',
+          officerName: 'Inspector Ramesh Patil',
+          requestingPaId: e.escalated_to_user_id,
+          requestingPaName: 'Smt. Lakshmi Devi, KAS',
+          requestDate: e.escalated_at ? e.escalated_at.split('T')[0] : e.created_at.split('T')[0],
+          reason: e.reason,
+          remarks: e.reason,
+          daysOverdue: 4,
+          previousRemindersCount: 2,
+          status: mappedStatus,
+          decisionRemarks: e.resolution_notes || undefined,
+          decidedBy: e.resolved_at ? 'DC Main Admin' : undefined,
+          decisionDate: e.resolved_at ? e.resolved_at.split('T')[0] : undefined,
+        };
+      });
+    } catch (err) {
+      // 403 means this role does not have VIEW_ESCALATIONS permission — return empty silently.
+      if (err instanceof ApiError && err.statusCode === 403) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   async createEscalationRequest(

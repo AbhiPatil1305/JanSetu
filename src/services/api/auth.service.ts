@@ -7,6 +7,7 @@ import {
   ApiError,
   USE_MOCK_API,
   isUuid,
+  getCurrentBackendRole,
 } from './client';
 
 const SESSION_STORAGE_KEY = 'jansetu_session';
@@ -99,6 +100,7 @@ export function mapBackendUserToFrontendUser(profile: BackendUserProfile): User 
     email: profile.email,
     employeeId: `${role.substring(0, 3)}-${profile.id.substring(0, 6).toUpperCase()}`,
     role,
+    backendRole: profile.role,
     departmentId: profile.department_id || undefined,
     departmentName: profile.department_id ? 'Police Department' : undefined,
     stationId: profile.office_id || undefined,
@@ -243,7 +245,20 @@ class AuthService {
       return mockStorage.getUsers();
     }
 
-    const backendUsers = await apiClient.get<BackendUserResponse[]>('/users');
+    const backendRole = getCurrentBackendRole();
+    if (backendRole === 'DATA_ENTRY_OPERATOR' || backendRole === 'OFFICER') {
+      return [];
+    }
+
+    let backendUsers: BackendUserResponse[] = [];
+    try {
+      backendUsers = await apiClient.get<BackendUserResponse[]>('/users');
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 403) {
+        return [];
+      }
+      throw err;
+    }
     return backendUsers.map((bu) => {
       const profile: BackendUserProfile = {
         id: bu.id,

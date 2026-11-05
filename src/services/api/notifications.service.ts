@@ -1,7 +1,7 @@
 import { Notification, NotificationCategory } from '../../types/notification';
 import { User } from '../../types/auth';
 import { mockStorage } from '../mock/mockStorage';
-import { apiClient, delay, USE_MOCK_API } from './client';
+import { apiClient, ApiError, delay, USE_MOCK_API, getCurrentBackendRole } from './client';
 
 export interface BackendNotification {
   id: string;
@@ -37,6 +37,11 @@ class NotificationsService {
       return mockStorage.getNotifications(user);
     }
 
+    const backendRole = getCurrentBackendRole(user);
+    if (backendRole === 'DATA_ENTRY_OPERATOR') {
+      return [];
+    }
+
     try {
       const data = await apiClient.get<PaginatedNotificationResponse>('/notifications', {
         params: { page_size: 20 },
@@ -63,7 +68,11 @@ class NotificationsService {
           link: `/officer/cases/${n.grievance_id}`,
         };
       });
-    } catch {
+    } catch (err) {
+      // 403 means this role does not have VIEW_NOTIFICATIONS permission — return empty silently.
+      if (err instanceof ApiError && err.statusCode === 403) {
+        return [];
+      }
       return mockStorage.getNotifications(user);
     }
   }

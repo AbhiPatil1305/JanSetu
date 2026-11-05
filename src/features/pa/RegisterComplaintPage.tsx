@@ -6,12 +6,14 @@ import { useNotifications } from '../../providers/NotificationContext';
 import { complaintsService } from '../../services/api/complaints.service';
 import { departmentsService } from '../../services/api/departments.service';
 import { officersService } from '../../services/api/officers.service';
+import { documentsService } from '../../services/api/documents.service';
 import { Department, PoliceStation } from '../../types/department';
 import { User } from '../../types/auth';
 import { ComplaintPriority, ConfidenceLevel, Complaint } from '../../types/complaint';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { OcrPanel } from '../../components/complaints/OcrPanel';
 import {
   Upload,
   FileText,
@@ -34,134 +36,6 @@ import {
   Check,
 } from 'lucide-react';
 
-interface ExtractedPreset {
-  name: string;
-  docName: string;
-  docSize: number;
-  language: 'kannada' | 'english' | 'bilingual';
-  rawOcr: string;
-  reviewedText: string;
-  englishSummary: string;
-  kannadaSummary: string;
-  citizenName: string;
-  phone: string;
-  email: string;
-  address: string;
-  taluk: string;
-  locality: string;
-  title: string;
-  description: string;
-  category: string;
-  incidentLocation: string;
-  incidentDate: string;
-  requestedAction: string;
-  confidence: {
-    citizen: ConfidenceLevel;
-    category: ConfidenceLevel;
-    location: ConfidenceLevel;
-    date: ConfidenceLevel;
-  };
-}
-
-const PRESET_PETITIONS: ExtractedPreset[] = [
-  {
-    name: 'Kannada Land Encroachment Petition (ಅಗರ ಗೋಮಾಳ)',
-    docName: 'Gowramma_Agara_Land_Encroachment_Kannada.pdf',
-    docSize: 2150000,
-    language: 'kannada',
-    rawOcr: `ಮಾನ್ಯ ಜಿಲ್ಲಾಧಿಕಾರಿಗಳಿಗೆ, ಬೆಂಗಳೂರು ನಗರ ಜಿಲ್ಲೆ, ಬೆಂಗಳೂರು.
-ಅರ್ಜಿದಾರರು: ಗೌರಮ್ಮ ಕೋಂ ಲೇಟ್ ಸಿದ್ದರಾಮಯ್ಯ, ಅಗರ ಗ್ರಾಮ, ಬೆಂಗಳೂರು ದಕ್ಷಿಣ ತಾಲೂಕು.
-ವಿಷಯ: ಅಗರ ಗ್ರಾಮದ ಸರ್ವೆ ನಂ. ೪೪ ರ ಸರ್ಕಾರಿ ಗೋಮಾಳ ಜಮೀನು ಒತ್ತುವರಿ ತೆರವುಗೊಳಿಸಲು ಹಾಗೂ ಬೆದರಿಕೆ ಹಾಕುತ್ತಿರುವ ಕಿಡಿಗೇಡಿಗಳ ವಿರುದ್ಧ ಕ್ರಮ ಕೈಗೊಳ್ಳಲು ಮನವಿ.
-ದೂರಿನ ಸಾರಾಂಶ: ಸದರಿ ಜಮೀನನ್ನು ಹಳ್ಳಿಯ ದನಕರುಗಳ ಮೇಯಿಸಲು ಮೀಸಲಿಡಲಾಗಿದ್ದು, ಸ್ಥಳೀಯ ಭೂಮಾಫಿಯಾದವರು ಅಕ್ರಮವಾಗಿ ರಾತ್ರೋರಾತ್ರಿ ತಂತಿಬೇಲಿ ನಿರ್ಮಿಸಿ ಒತ್ತುವರಿ ಮಾಡಿಕೊಂಡಿದ್ದಾರೆ. ಗ್ರಾಮಸ್ಥರು ಪ್ರಶ್ನಿಸಿದಾಗ ಪ್ರಾಣಬೆದರಿಕೆ ಹಾಕಿದ್ದಾರೆ.
-ಕ್ರಮ ಕೋರಿಕೆ: ತಕ್ಷಣ ಸ್ಥಳ ಪರಿಶೀಲನೆ ನಡೆಸಿ ತಂತಿಬೇಲಿ ತೆರವುಗೊಳಿಸುವುದು ಮತ್ತು ಪೊಲೀಸ್ ರಕ್ಷಣೆ ನೀಡುವುದು.`,
-    reviewedText: `ಮಾನ್ಯ ಜಿಲ್ಲಾಧಿಕಾರಿಗಳಿಗೆ, ಬೆಂಗಳೂರು ನಗರ ಜಿಲ್ಲೆ. ಅರ್ಜಿದಾರರು: ಗೌರಮ್ಮ ಕೋಂ ಲೇಟ್ ಸಿದ್ದರಾಮಯ್ಯ. ಅಗರ ಗ್ರಾಮದ ಸರ್ವೆ ನಂ. ೪೪ ರ ಸರ್ಕಾರಿ ಗೋಮಾಳ ಜಮೀನು ಅಕ್ರಮ ಒತ್ತುವರಿ ಮತ್ತು ಬೆದರಿಕೆ ಕುರಿತು ತುರ್ತು ಕ್ರಮ.`,
-    englishSummary: `Petition by resident Gowramma alleging illegal encroachment and fencing of Government Gomal Land (Survey No. 44) in Agara village with criminal intimidation by local elements.`,
-    kannadaSummary: `ಅಗರ ಗ್ರಾಮದ ಸರ್ವೆ ನಂ. ೪೪ ರ ಸರ್ಕಾರಿ ಗೋಮಾಳ ಜಮೀನನ್ನು ಅಕ್ರಮವಾಗಿ ಒತ್ತುವರಿ ಮಾಡಿಕೊಂಡು ಗ್ರಾಮಸ್ಥರಿಗೆ ಬೆದರಿಕೆ ಹಾಕುತ್ತಿರುವ ಕುರಿತು ಮನವಿ.`,
-    citizenName: 'ಗೌರಮ್ಮ (Gowramma)',
-    phone: '+91 94482 99120',
-    email: '',
-    address: 'Near Anjaneya Temple, Agara Village, HSR Post',
-    taluk: 'Bengaluru South',
-    locality: 'Agara Village',
-    title: 'ಸರ್ಕಾರಿ ಗೋಮಾಳ ಜಮೀನು ಅಕ್ರಮ ಒತ್ತುವರಿ ಮತ್ತು ಬೆದರಿಕೆ (Government Land Encroachment)',
-    description: `ಅಗರ ಗ್ರಾಮದ ಸರ್ವೆ ನಂ. ೪೪ ರ ಸರ್ಕಾರಿ ಗೋಮಾಳ ಜಮೀನನ್ನು ಸ್ಥಳೀಯ ಕಿಡಿಗೇಡಿಗಳು ಅಕ್ರಮವಾಗಿ ಒತ್ತುವರಿ ಮಾಡಿ ತಂತಿಬೇಲಿ ಹಾಕುತ್ತಿದ್ದು, ಪ್ರಶ್ನಿಸಿದ ಗ್ರಾಮಸ್ಥರಿಗೆ ಪ್ರಾಣಬೆದರಿಕೆ ಹಾಕುತ್ತಿದ್ದಾರೆ.`,
-    category: 'Land Encroachment & Threat',
-    incidentLocation: 'Survey No. 44, Agara Village',
-    incidentDate: new Date(Date.now() - 4 * 86400000).toISOString().split('T')[0],
-    requestedAction: 'ಅಕ್ರಮ ತಂತಿಬೇಲಿ ತೆರವುಗೊಳಿಸುವುದು ಮತ್ತು ಬೆದರಿಕೆ ಹಾಕಿದವರ ವಿರುದ್ಧ ಕಾನೂನು ಕ್ರಮ ಕೈಗೊಳ್ಳುವುದು.',
-    confidence: {
-      citizen: 'HIGH',
-      category: 'HIGH',
-      location: 'HIGH',
-      date: 'HIGH',
-    },
-  },
-  {
-    name: 'English Cyber Financial Fraud Grievance (Telegram ₹4.8L)',
-    docName: 'Cyber_Fraud_Complaint_SunitaMehra.pdf',
-    docSize: 1840000,
-    language: 'english',
-    rawOcr: `TO: THE SUPERINTENDENT OF POLICE / DEPUTY COMMISSIONER
-COMPLAINANT: Sunita Mehra, #112, 12th Main, HAL 2nd Stage, Indiranagar. Phone: +91 98860 44556.
-SUBJECT: Online Investment Cyber Fraud of Rs 4,80,000 via Telegram Trading Group.
-INCIDENT DETAILS: On 28th October, I was added to a Telegram investment channel promising 30% daily returns. Transferred Rs 4.8 Lakhs across 3 transactions (SBI A/C 2049182741). Admin blocked my number upon requesting withdrawal.
-REQUESTED RELIEF: Direct Cyber Crime Unit to freeze mule accounts immediately and recover defrauded funds.`,
-    reviewedText: `To: The Deputy Commissioner & Cyber Crime Division. Complainant: Sunita Mehra. Loss of Rs 4,80,000 via fraudulent Telegram trading scheme. Immediate debit freeze requested.`,
-    englishSummary: `Citizen Sunita Mehra defrauded of ₹4,80,000 across 3 bank transactions via fraudulent Telegram trading investment scheme. Immediate debit freeze needed.`,
-    kannadaSummary: `ಟೆಲಿಗ್ರಾಂ ಹೂಡಿಕೆ ವಂಚನೆಯ ಮೂಲಕ ₹೪,೮೦,೦೦೦ ಹಣ ಕಳೆದುಕೊಂಡಿರುವ ಬಗ್ಗೆ ಸೈಬರ್ ಕ್ರೈಮ್ ದೂರು. ಖಾತೆಗಳನ್ನು ತಕ್ಷಣ ಸ್ಥಗಿತಗೊಳಿಸಲು ಮನವಿ.`,
-    citizenName: 'Sunita Mehra',
-    phone: '+91 98860 44556',
-    email: 'sunita.mehra@outlook.com',
-    address: '#112, 12th Main, HAL 2nd Stage, Indiranagar',
-    taluk: 'Bengaluru East',
-    locality: 'Indiranagar',
-    title: 'Online Investment Cyber Fraud of ₹4,80,000 via Telegram Scheme',
-    description: `Defrauded into transferring ₹4.8 Lakhs to multiple mule bank accounts through a fraudulent crypto/stock trading Telegram group. Group admins subsequently severed contact.`,
-    category: 'Cyber Financial Fraud',
-    incidentLocation: 'Indiranagar, Bengaluru',
-    incidentDate: new Date(Date.now() - 6 * 86400000).toISOString().split('T')[0],
-    requestedAction: 'Liaise with Cyber Crime nodal officer to place debit freeze on beneficiary accounts and initiate FIR under IT Act Sec 66D.',
-    confidence: {
-      citizen: 'HIGH',
-      category: 'HIGH',
-      location: 'HIGH',
-      date: 'HIGH',
-    },
-  },
-  {
-    name: 'Bilingual Public Nuisance & Noise Violation (Koramangala 80ft)',
-    docName: 'Resident_Association_Noise_Petition.pdf',
-    docSize: 1320000,
-    language: 'bilingual',
-    rawOcr: `RESIDENTS WELFARE ASSOCIATION, 4TH BLOCK KORAMANGALA
-PETITION TO DEPUTY COMMISSIONER, BENGALURU URBAN
-SUBJECT: Severe High-Decibel Noise and Illegal Rooftop Pub Operations on 80 Feet Road.
-ಅನಧಿಕೃತ ಪಬ್ ಮತ್ತು ಧ್ವನಿವರ್ಧಕಗಳ ಹಾವಳಿ: ರಾತ್ರಿ ೧೨ ಗಂಟೆಯ ನಂತರವೂ ಅಕ್ರಮವಾಗಿ ಧ್ವನಿವರ್ಧಕಗಳನ್ನು ಬಳಸಿ ವೃದ್ಧರಿಗೆ ಮತ್ತು ಮಕ್ಕಳಿಗೆ ನಿದ್ರಾಭಂಗ ಉಂಟುಮಾಡಲಾಗುತ್ತಿದೆ.
-Citizen Rep: Chandrashekar S. Murthy. Mobile: +91 98450 12345.
-Relief: Conduct decibel measurement, enforce 11:30 PM curfew, verify license.`,
-    reviewedText: `Residents Welfare Association petition regarding illegal outdoor amplified music and commercial noise on 80ft Road Koramangala exceeding permissible noise standards after midnight.`,
-    englishSummary: `Resident petition regarding persistent midnight amplified music and street obstruction by rooftop lounge on 80ft Road Koramangala.`,
-    kannadaSummary: `ಕೋರಮಂಗಲ 80 ಅಡಿ ರಸ್ತೆಯಲ್ಲಿ ರಾತ್ರಿ ವೇಳೆ ನಿರಂತರವಾಗಿ ಜೋರು ಧ್ವನಿವರ್ಧಕ ಬಳಕೆ ಮತ್ತು ಸಂಚಾರ ಅಡಚಣೆ ಕುರಿತು ನಿವಾಸಿಗಳ ದೂರು.`,
-    citizenName: 'Chandrashekar S. Murthy',
-    phone: '+91 98450 12345',
-    email: 'c.murthy@gmail.com',
-    address: '#45, 1st Cross, Koramangala 4th Block',
-    taluk: 'Bengaluru South',
-    locality: 'Koramangala 4th Block',
-    title: 'Commercial Noise Violation & Illegal Night Pub Operation',
-    description: `Persistent amplified music beyond midnight and illegal outdoor seating causing severe disturbance to senior citizens and children on 80ft road Koramangala.`,
-    category: 'Public Nuisance & Noise Pollution',
-    incidentLocation: '80ft Road, 4th Block, Koramangala',
-    incidentDate: new Date(Date.now() - 10 * 86400000).toISOString().split('T')[0],
-    requestedAction: 'Enforce legal noise decibel limits, restrict operation past 11:30 PM, verify municipal bar license under Karnataka Police Act.',
-    confidence: {
-      citizen: 'HIGH',
-      category: 'HIGH',
-      location: 'HIGH',
-      date: 'HIGH',
-    },
-  },
-];
 
 export const RegisterComplaintPage: React.FC = () => {
   const { user } = useAuth();
@@ -174,6 +48,8 @@ export const RegisterComplaintPage: React.FC = () => {
 
   // Stage 1: File State
   const [file, setFile] = useState<{ name: string; size: number; url: string } | null>(null);
+  const [uploadedRawFile, setUploadedRawFile] = useState<File | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [isProcessingOcr, setIsProcessingOcr] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -232,6 +108,9 @@ export const RegisterComplaintPage: React.FC = () => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [createdCaseId, setCreatedCaseId] = useState<string | null>(null);
   const [createdOfficerName, setCreatedOfficerName] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [docUploadComplete, setDocUploadComplete] = useState(false);
 
   // Load departments
   useEffect(() => {
@@ -263,84 +142,136 @@ export const RegisterComplaintPage: React.FC = () => {
   // Update officers when station changes
   useEffect(() => {
     if (selectedStationId) {
-      officersService.getOfficers(selectedStationId).then((offs) => {
-        setOfficers(offs);
-        if (offs.length > 0) {
-          setSelectedOfficerId(offs[0].id);
-        } else {
+      officersService
+        .getOfficers(selectedStationId)
+        .then((offs) => {
+          setOfficers(offs);
+          if (offs.length > 0) {
+            setSelectedOfficerId(offs[0].id);
+          } else {
+            setSelectedOfficerId('');
+          }
+        })
+        .catch(() => {
+          setOfficers([]);
           setSelectedOfficerId('');
-        }
-      });
+        });
     } else {
       setOfficers([]);
       setSelectedOfficerId('');
     }
   }, [selectedStationId]);
 
-  // Apply a preset petition
-  const applyPreset = (preset: ExtractedPreset) => {
+  const handleFileSelection = (droppedFile: File) => {
+    if (droppedFile.size > 25 * 1024 * 1024) {
+      showToast('File Too Large', 'Maximum allowed file size is 25 MB.', 'error');
+      return;
+    }
+
+    setUploadedRawFile(droppedFile);
+    const objectUrl = URL.createObjectURL(droppedFile);
     setFile({
-      name: preset.docName,
-      size: preset.docSize,
-      url: '#',
+      name: droppedFile.name,
+      size: droppedFile.size,
+      url: objectUrl,
     });
-    setRawOcr(preset.rawOcr);
-    setReviewedOcr(preset.reviewedText);
-    setEnglishSummary(preset.englishSummary);
-    setKannadaSummary(preset.kannadaSummary);
-    setCitizenName(preset.citizenName);
-    setCitizenPhone(preset.phone);
-    setCitizenEmail(preset.email);
-    setCitizenAddress(preset.address);
-    setTaluk(preset.taluk);
-    setVillageLocality(preset.locality);
-    setComplaintTitle(preset.title);
-    setComplaintDesc(preset.description);
-    setComplaintCategory(preset.category);
-    setIncidentLocation(preset.incidentLocation);
-    setIncidentDate(preset.incidentDate);
-    setRequestedAction(preset.requestedAction);
-    setComplaintLanguage(preset.language);
-    setConfidenceScores(preset.confidence);
 
-    setAssignmentInstructions(
-      `Conduct spot enquiry regarding ${preset.category} at ${preset.incidentLocation}. Issue notice if required and report back within 3 working days.`
-    );
-  };
-
-  const handleSimulateUpload = (selectedPreset?: ExtractedPreset) => {
-    const preset = selectedPreset || PRESET_PETITIONS[0];
-    applyPreset(preset);
+    // Derive initial title from filename if empty
+    const derivedTitle = droppedFile.name
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[_-]/g, ' ')
+      .trim();
+    if (!complaintTitle) {
+      setComplaintTitle(derivedTitle);
+    }
 
     setIsProcessingOcr(true);
-    setUploadProgress(20);
+    setUploadProgress(30);
 
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsProcessingOcr(false);
-          setCurrentStage(2);
-          showToast('OCR & AI Ingestion Complete', 'Document text extracted and summarized.', 'success');
-          return 100;
+    // Call backend direct extraction (PyMuPDF for PDF, python-docx for DOCX, OCR for images/scans)
+    documentsService
+      .extractTextFromFile(droppedFile)
+      .then((res) => {
+        const extracted = res.extracted_text || '';
+        setRawOcr(extracted);
+        setReviewedOcr(extracted);
+        if (extracted && !englishSummary) {
+          setEnglishSummary(extracted.slice(0, 300));
         }
-        return prev + 30;
+        if (res.ocr_status === 'FAILED' && res.ocr_error) {
+          showToast('OCR Notice', res.ocr_error, 'warning');
+        } else {
+          showToast(
+            'Document Text Extracted',
+            `Successfully extracted text from ${droppedFile.name}. Review below.`,
+            'success'
+          );
+        }
+      })
+      .catch((err) => {
+        if (droppedFile.name.toLowerCase().endsWith('.txt')) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const textContent = (e.target?.result as string) || '';
+            setRawOcr(textContent);
+            setReviewedOcr(textContent);
+          };
+          reader.readAsText(droppedFile);
+        } else {
+          console.warn('Direct extraction notice:', err);
+          showToast('Extraction Notice', err?.message || 'Proceed to verify or extract text.', 'warning');
+        }
+      })
+      .finally(() => {
+        setUploadProgress(100);
+        setIsProcessingOcr(false);
+        setCurrentStage(2);
       });
-    }, 150);
   };
 
   const handleFileDrop = (e: React.DragEvent) => {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const droppedFile = e.dataTransfer.files[0];
-      setFile({
-        name: droppedFile.name,
-        size: droppedFile.size,
-        url: '#',
-      });
-      // Pick random preset for realistic extraction
-      const preset = PRESET_PETITIONS[Math.floor(Math.random() * PRESET_PETITIONS.length)];
-      handleSimulateUpload(preset);
+      handleFileSelection(e.dataTransfer.files[0]);
+    }
+  };
+
+  const uploadAttachedDocument = async (caseId: string): Promise<boolean> => {
+    if (!file) return true;
+    setIsUploadingDoc(true);
+    setUploadError(null);
+    try {
+      let fileToUpload: File | Blob;
+      let uploadName = file.name || 'citizen_petition.pdf';
+      if (uploadedRawFile) {
+        fileToUpload = uploadedRawFile;
+        uploadName = uploadedRawFile.name;
+      } else {
+        const fileBody = reviewedOcr || rawOcr || complaintDesc || 'Citizen Petition Document';
+        fileToUpload = new Blob([fileBody], { type: 'text/plain;charset=utf-8' });
+        if (!uploadName.endsWith('.txt') && !uploadName.endsWith('.pdf')) {
+          uploadName += '.txt';
+        }
+      }
+
+      await complaintsService.uploadComplaintDocument(
+        caseId,
+        fileToUpload,
+        uploadName,
+        'PETITION',
+        complaintLanguage === 'kannada' ? 'kn' : 'en',
+        complaintTitle
+      );
+      setDocUploadComplete(true);
+      setUploadError(null);
+      return true;
+    } catch (docErr: any) {
+      const msg = docErr.message || 'Document upload failed. File may be unsupported or size exceeded.';
+      setUploadError(msg);
+      showToast('Document Upload Incomplete', msg, 'error');
+      return false;
+    } finally {
+      setIsUploadingDoc(false);
     }
   };
 
@@ -356,7 +287,22 @@ export const RegisterComplaintPage: React.FC = () => {
       return;
     }
 
+    // SAFE RETRY: If grievance was already created in a previous attempt, do NOT recreate it!
+    if (createdCaseId) {
+      const uploadOk = await uploadAttachedDocument(createdCaseId);
+      if (uploadOk) {
+        setCurrentStage(5);
+        showToast(
+          'Document Upload Completed',
+          `Attachment successfully uploaded to Case ID: ${createdCaseId}`,
+          'success'
+        );
+      }
+      return;
+    }
+
     setIsRegistering(true);
+    setUploadError(null);
 
     try {
       const dept = departments.find((d) => d.id === selectedDeptId);
@@ -434,14 +380,27 @@ export const RegisterComplaintPage: React.FC = () => {
 
       setCreatedCaseId(newComplaint.id);
       setCreatedOfficerName(hasAssignment ? officer.name : null);
-      setCurrentStage(5);
-      showToast(
-        'Complaint Successfully Registered',
-        hasAssignment
-          ? `Grievance registered and assigned to ${officer.name}. Case ID: ${newComplaint.id}`
-          : `Grievance registered as Awaiting Assignment. Case ID: ${newComplaint.id}`,
-        'success'
-      );
+
+      // Attempt document upload
+      const uploadOk = await uploadAttachedDocument(newComplaint.id);
+
+      if (uploadOk) {
+        setCurrentStage(5);
+        showToast(
+          'Complaint Successfully Registered',
+          hasAssignment
+            ? `Grievance registered and assigned to ${officer.name}. Case ID: ${newComplaint.id}`
+            : `Grievance registered as Awaiting Assignment. Case ID: ${newComplaint.id}`,
+          'success'
+        );
+      } else {
+        // Remained on Stage 4 so user can retry document upload without re-registering
+        showToast(
+          'Grievance Created — Document Upload Pending',
+          `Case ID ${newComplaint.id} generated. Please review and retry document upload below.`,
+          'warning'
+        );
+      }
     } catch (err: any) {
       showToast('Error', err.message || 'Failed to register complaint', 'error');
     } finally {
@@ -452,9 +411,13 @@ export const RegisterComplaintPage: React.FC = () => {
   const handleResetWorkflow = () => {
     setCurrentStage(1);
     setFile(null);
+    setUploadedRawFile(null);
     setVerifiedCheckbox(false);
     setCreatedCaseId(null);
     setCreatedOfficerName(null);
+    setUploadError(null);
+    setIsUploadingDoc(false);
+    setDocUploadComplete(false);
   };
 
   const getConfidenceBadge = (level: ConfidenceLevel) => {
@@ -556,7 +519,7 @@ export const RegisterComplaintPage: React.FC = () => {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleFileDrop}
                 className="border-2 border-dashed border-slate-300 hover:border-amber-500 hover:bg-amber-50/20 rounded-2xl p-10 text-center transition cursor-pointer flex flex-col items-center justify-center gap-3"
-                onClick={() => handleSimulateUpload(PRESET_PETITIONS[0])}
+                onClick={() => fileInputRef.current?.click()}
               >
                 <div className="w-16 h-16 rounded-2xl bg-amber-100/80 text-amber-700 flex items-center justify-center shadow-xs">
                   <Upload className="w-8 h-8" />
@@ -567,7 +530,26 @@ export const RegisterComplaintPage: React.FC = () => {
                     Accepts PDF, JPG, PNG, Scanned Kannada/English Documents (Up to 25 MB)
                   </p>
                 </div>
-                <Button variant="secondary" size="sm" className="mt-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.txt"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleFileSelection(e.target.files[0]);
+                    }
+                  }}
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                >
                   {t.registration.browseFiles}
                 </Button>
               </div>
@@ -588,37 +570,7 @@ export const RegisterComplaintPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Preset Testing Shortcuts */}
-              <div className="pt-4 border-t border-slate-100">
-                <span className="text-xs font-bold text-slate-700 block mb-3">
-                  {t.registration.samplePresets}
-                </span>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {PRESET_PETITIONS.map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleSimulateUpload(preset)}
-                      className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-amber-50/70 hover:border-amber-300 text-left transition space-y-1.5 group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono uppercase font-bold text-slate-400 group-hover:text-amber-700">
-                          Preset #{idx + 1}
-                        </span>
-                        <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
-                          {preset.language}
-                        </span>
-                      </div>
-                      <p className="text-xs font-bold text-slate-900 group-hover:text-amber-900 line-clamp-2">
-                        {preset.name}
-                      </p>
-                      <span className="text-[11px] text-blue-600 font-medium group-hover:underline block">
-                        Ingest & Extract &rarr;
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+
 
               {/* Confidentiality notice */}
               <div className="p-4 bg-slate-900 text-slate-300 rounded-xl text-xs flex items-start gap-3 border border-slate-800">
@@ -633,120 +585,79 @@ export const RegisterComplaintPage: React.FC = () => {
       {/* STAGE 2: OCR & AI EXTRACTION REVIEW */}
       {currentStage === 2 && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left: Document Viewer Simulation */}
-            <div className="lg:col-span-5 space-y-3">
-              <div className="flex items-center justify-between text-xs text-slate-600">
-                <span className="font-bold flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-slate-500" />
-                  <span>Original Document Preview</span>
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setZoomLevel((z) => Math.max(60, z - 20))}
-                    className="p-1 rounded hover:bg-slate-200 text-slate-600"
-                    title="Zoom Out"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="font-mono text-[11px] w-10 text-center">{zoomLevel}%</span>
-                  <button
-                    onClick={() => setZoomLevel((z) => Math.min(180, z + 20))}
-                    className="p-1 rounded hover:bg-slate-200 text-slate-600"
-                    title="Zoom In"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
+          {/* Integrated Document OCR Workspace (Stage 1 OCR Text Extraction) */}
+          <OcrPanel
+            file={file}
+            rawFile={uploadedRawFile}
+            documentName={file?.name}
+            rawText={rawOcr}
+            reviewedText={reviewedOcr}
+            onRawTextChange={setRawOcr}
+            onReviewedTextChange={setReviewedOcr}
+            onSaveReviewedText={(saved) => {
+              setReviewedOcr(saved);
+              showToast('Reviewed Text Saved', 'Human verified petition text preserved.', 'success');
+            }}
+          />
+
+          {/* AI Summaries & Multi-language Verification Workspace */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-bold flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <span>AI Extracted Summaries & Verification Scores</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 p-5 text-xs">
+              {/* Confidence Indicators Header */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pb-3 border-b border-slate-100">
+                <div>
+                  <span className="text-slate-400 block mb-0.5">Citizen Identity</span>
+                  {getConfidenceBadge(confidenceScores.citizen)}
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">Classification</span>
+                  {getConfidenceBadge(confidenceScores.category)}
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">Location</span>
+                  {getConfidenceBadge(confidenceScores.location)}
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">Incident Date</span>
+                  {getConfidenceBadge(confidenceScores.date)}
                 </div>
               </div>
 
-              <div className="h-[520px] bg-slate-900/95 text-slate-200 rounded-xl p-5 overflow-y-auto border border-slate-800 font-serif leading-relaxed text-xs shadow-inner">
-                <div
-                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top left' }}
-                  className="space-y-3"
-                >
-                  <div className="text-center pb-2 border-b border-slate-700 text-slate-400 uppercase text-[10px] tracking-widest font-mono">
-                    Scanned Petition Document &bull; District Archive
-                  </div>
-                  <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-slate-300">
-                    {rawOcr}
-                  </pre>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* English Summary */}
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    English Summary (Editable):
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={englishSummary}
+                    onChange={(e) => setEnglishSummary(e.target.value)}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:bg-white focus:border-slate-800 outline-none leading-relaxed"
+                  />
+                </div>
+
+                {/* Kannada Summary */}
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1 font-kannada">
+                    ಕನ್ನಡ ಸಾರಾಂಶ (Kannada Summary - Editable):
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={kannadaSummary}
+                    onChange={(e) => setKannadaSummary(e.target.value)}
+                    className="w-full p-2.5 bg-amber-50/40 border border-amber-200 rounded-lg text-slate-800 focus:bg-white focus:border-amber-600 outline-none leading-relaxed font-kannada"
+                  />
                 </div>
               </div>
-            </div>
-
-            {/* Right: AI Summaries & Verification Workspace */}
-            <div className="lg:col-span-7 space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm font-bold flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-amber-500" />
-                    <span>AI Extracted Summaries & Verified Text</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 p-5 text-xs">
-                  {/* Confidence Indicators Header */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pb-3 border-b border-slate-100">
-                    <div>
-                      <span className="text-slate-400 block mb-0.5">Citizen Identity</span>
-                      {getConfidenceBadge(confidenceScores.citizen)}
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block mb-0.5">Classification</span>
-                      {getConfidenceBadge(confidenceScores.category)}
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block mb-0.5">Location</span>
-                      {getConfidenceBadge(confidenceScores.location)}
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block mb-0.5">Incident Date</span>
-                      {getConfidenceBadge(confidenceScores.date)}
-                    </div>
-                  </div>
-
-                  {/* English Summary */}
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1">
-                      English Summary (Editable):
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={englishSummary}
-                      onChange={(e) => setEnglishSummary(e.target.value)}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:bg-white focus:border-slate-800 outline-none leading-relaxed"
-                    />
-                  </div>
-
-                  {/* Kannada Summary */}
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1 font-kannada">
-                      ಕನ್ನಡ ಸಾರಾಂಶ (Kannada Summary - Editable):
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={kannadaSummary}
-                      onChange={(e) => setKannadaSummary(e.target.value)}
-                      className="w-full p-2.5 bg-amber-50/40 border border-amber-200 rounded-lg text-slate-800 focus:bg-white focus:border-amber-600 outline-none leading-relaxed font-kannada"
-                    />
-                  </div>
-
-                  {/* Reviewed Text */}
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1">
-                      Reviewed Clean Text:
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={reviewedOcr}
-                      onChange={(e) => setReviewedOcr(e.target.value)}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:bg-white focus:border-slate-800 outline-none leading-relaxed"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           <div className="flex justify-between items-center pt-4">
             <Button
@@ -986,18 +897,23 @@ export const RegisterComplaintPage: React.FC = () => {
                   {/* Officer */}
                   <div>
                     <label className="font-semibold text-slate-700 block mb-1">
-                      Investigating Police Officer <span className="text-rose-500">*</span>
+                      Investigating Police Officer {officers.length > 0 && <span className="text-rose-500">*</span>}
                     </label>
                     <select
                       value={selectedOfficerId}
                       onChange={(e) => setSelectedOfficerId(e.target.value)}
                       className="w-full p-2.5 border border-slate-200 rounded-lg text-slate-900 focus:border-slate-800 outline-none text-sm bg-white"
+                      disabled={officers.length === 0}
                     >
-                      {officers.map((off) => (
-                        <option key={off.id} value={off.id}>
-                          {off.name} ({off.designation})
-                        </option>
-                      ))}
+                      {officers.length === 0 ? (
+                        <option value="">Awaiting Assignment by Supervisor</option>
+                      ) : (
+                        officers.map((off) => (
+                          <option key={off.id} value={off.id}>
+                            {off.name} ({off.designation})
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
                 </div>
@@ -1103,7 +1019,7 @@ export const RegisterComplaintPage: React.FC = () => {
                   <div>
                     <span className="text-slate-400 block font-semibold">Assigned Police Officer</span>
                     <p className="text-sm font-bold text-slate-900">
-                      {officers.find((o) => o.id === selectedOfficerId)?.name || 'None Selected'}
+                      {officers.find((o) => o.id === selectedOfficerId)?.name || 'Awaiting Supervisor Assignment'}
                     </p>
                     <p className="text-slate-600">
                       {stations.find((s) => s.id === selectedStationId)?.name}
@@ -1141,12 +1057,36 @@ export const RegisterComplaintPage: React.FC = () => {
                 </label>
               </div>
 
+              {/* Document upload failure alert with safe retry */}
+              {uploadError && (
+                <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                    <span>Grievance Created, but Document Upload Needs Attention</span>
+                  </div>
+                  <p className="text-xs text-amber-800">
+                    Grievance <strong>{createdCaseId}</strong> has been registered in the system. However, the petition file could not be attached: <span className="font-semibold">{uploadError}</span>.
+                  </p>
+                  <p className="text-[11px] text-amber-700">
+                    Click "Retry Document Upload" below. Retrying will NOT create a duplicate grievance.
+                  </p>
+                </div>
+              )}
+
+              {isUploadingDoc && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2 text-xs text-blue-800 font-semibold">
+                  <RotateCw className="w-4 h-4 animate-spin text-blue-600" />
+                  <span>Uploading document to secure government storage...</span>
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t border-slate-100">
                 <Button
                   variant="outline"
                   size="md"
                   leftIcon={<ChevronLeft className="w-4 h-4" />}
                   onClick={() => setCurrentStage(3)}
+                  disabled={isRegistering || isUploadingDoc}
                 >
                   Edit Information
                 </Button>
@@ -1165,10 +1105,10 @@ export const RegisterComplaintPage: React.FC = () => {
                     variant="gold"
                     size="md"
                     onClick={() => handleFinalRegisterAndAssign(false)}
-                    isLoading={isRegistering}
+                    isLoading={isRegistering || isUploadingDoc}
                     disabled={!verifiedCheckbox}
                   >
-                    REGISTER & ASSIGN GRIEVANCE
+                    {createdCaseId ? 'RETRY DOCUMENT UPLOAD' : 'REGISTER & ASSIGN GRIEVANCE'}
                   </Button>
                 </div>
               </div>

@@ -66,6 +66,10 @@ export interface ComplaintDocument {
   url: string;
   uploadedAt: string;
   isOriginal: boolean;
+  ocrStatus?: 'NOT_STARTED' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'NEEDS_REVIEW';
+  ocrLanguage?: string;
+  ocrProcessedAt?: string;
+  ocrError?: string;
 }
 
 export interface AssignmentInfo {

@@ -541,6 +541,48 @@ class ComplaintsService {
 
     return this.getComplaintById(complaintId);
   }
+
+  async uploadComplaintDocument(
+    complaintId: string,
+    file: File | Blob,
+    filename: string,
+    documentType: string = 'PETITION',
+    language: string = 'en',
+    documentName?: string
+  ): Promise<any> {
+    if (USE_MOCK_API) {
+      await delay(100);
+      return {
+        id: `doc-${Date.now()}`,
+        grievance_id: complaintId,
+        document_name: documentName || filename,
+        original_filename: filename,
+        mime_type: (file as any).type || 'application/pdf',
+        file_size: file.size,
+        document_type: documentType,
+        language,
+        created_at: new Date().toISOString(),
+      };
+    }
+
+    const formData = new FormData();
+    formData.append('file', file, filename);
+    formData.append('document_type', documentType);
+    formData.append('language', language);
+    if (documentName) {
+      formData.append('document_name', documentName);
+    }
+
+    return apiClient.upload<any>(`/grievances/${complaintId}/documents`, formData);
+  }
+
+  async getComplaintDocuments(complaintId: string): Promise<any[]> {
+    if (USE_MOCK_API) {
+      await delay(50);
+      return [];
+    }
+    return apiClient.get<any[]>(`/grievances/${complaintId}/documents`);
+  }
 }
 
 export const complaintsService = new ComplaintsService();

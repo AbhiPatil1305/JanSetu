@@ -3,6 +3,7 @@ import { Notification } from '../types/notification';
 import { notificationsService } from '../services/api/notifications.service';
 import { mockStorage } from '../services/mock/mockStorage';
 import { useAuth } from './AuthContext';
+import { getCurrentBackendRole } from '../services/api/client';
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from 'lucide-react';
 
 export interface Toast {
@@ -30,6 +31,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const refreshNotifications = useCallback(async () => {
     if (!user) {
+      setNotifications([]);
+      return;
+    }
+    const backendRole = getCurrentBackendRole(user);
+    if (backendRole === 'DATA_ENTRY_OPERATOR') {
       setNotifications([]);
       return;
     }

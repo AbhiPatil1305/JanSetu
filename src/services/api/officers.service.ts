@@ -1,6 +1,6 @@
 import { User } from '../../types/auth';
 import { mockStorage } from '../mock/mockStorage';
-import { apiClient, delay, ApiError, USE_MOCK_API, isUuid } from './client';
+import { apiClient, delay, ApiError, USE_MOCK_API, isUuid, getCurrentBackendRole } from './client';
 import {
   BackendUserResponse,
   BackendUserProfile,
@@ -33,27 +33,39 @@ class OfficersService {
       return all;
     }
 
-    const params: Record<string, any> = {};
-    if (stationId && isUuid(stationId)) params.office_id = stationId;
+    const backendRole = getCurrentBackendRole();
+    if (backendRole === 'DATA_ENTRY_OPERATOR') {
+      return [];
+    }
 
-    const users = await apiClient.get<BackendUserResponse[]>('/users', { params });
-    const officers = users
-      .filter((u) => u.role_name === 'OFFICER' || u.role_name === 'SUPERVISOR')
-      .map((bu) => {
-        const profile: BackendUserProfile = {
-          id: bu.id,
-          full_name: bu.full_name,
-          email: bu.email,
-          role: bu.role_name,
-          department_id: bu.department_id || null,
-          office_id: bu.office_id || null,
-          is_active: bu.is_active,
-          is_verified: bu.is_verified,
-        };
-        return mapBackendUserToFrontendUser(profile);
-      });
+    try {
+      const params: Record<string, any> = {};
+      if (stationId && isUuid(stationId)) params.office_id = stationId;
 
-    return officers;
+      const users = await apiClient.get<BackendUserResponse[]>('/users', { params });
+      const officers = users
+        .filter((u) => u.role_name === 'OFFICER' || u.role_name === 'SUPERVISOR')
+        .map((bu) => {
+          const profile: BackendUserProfile = {
+            id: bu.id,
+            full_name: bu.full_name,
+            email: bu.email,
+            role: bu.role_name,
+            department_id: bu.department_id || null,
+            office_id: bu.office_id || null,
+            is_active: bu.is_active,
+            is_verified: bu.is_verified,
+          };
+          return mapBackendUserToFrontendUser(profile);
+        });
+
+      return officers;
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 403) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   async getOfficerById(id: string): Promise<User> {

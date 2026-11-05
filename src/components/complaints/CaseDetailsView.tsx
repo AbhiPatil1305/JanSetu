@@ -8,7 +8,8 @@ import { followupsService } from '../../services/api/followups.service';
 import { escalationsService } from '../../services/api/escalations.service';
 import { officersService } from '../../services/api/officers.service';
 import { departmentsService } from '../../services/api/departments.service';
-import { Complaint, ProgressUpdate, ResolutionSubmission } from '../../types/complaint';
+import { Complaint, ComplaintDocument, ProgressUpdate, ResolutionSubmission } from '../../types/complaint';
+import { OcrPanel } from './OcrPanel';
 import { User } from '../../types/auth';
 import { PoliceStation } from '../../types/department';
 import { StatusBadge, PriorityBadge, FlagBadge } from '../common/Badge';
@@ -60,6 +61,7 @@ export const CaseDetailsView: React.FC = () => {
   const [isReassignModalOpen, setIsReassignModalOpen] = useState(false);
   const [isResolutionModalOpen, setIsResolutionModalOpen] = useState(false);
   const [isPreviewDocModalOpen, setIsPreviewDocModalOpen] = useState(false);
+  const [selectedDocForInspection, setSelectedDocForInspection] = useState<ComplaintDocument | null>(null);
 
   // Form states for modals
   const [commType, setCommType] = useState<'PHONE_CALL' | 'EMAIL' | 'LETTER'>('PHONE_CALL');
@@ -613,9 +615,12 @@ export const CaseDetailsView: React.FC = () => {
                     variant="outline"
                     size="sm"
                     leftIcon={<ZoomIn className="w-3.5 h-3.5" />}
-                    onClick={() => setIsPreviewDocModalOpen(true)}
+                    onClick={() => {
+                      setSelectedDocForInspection(doc);
+                      setIsPreviewDocModalOpen(true);
+                    }}
                   >
-                    Inspect
+                    Inspect & OCR
                   </Button>
                 </div>
               ))}
@@ -1249,29 +1254,19 @@ export const CaseDetailsView: React.FC = () => {
       <Modal
         isOpen={isPreviewDocModalOpen}
         onClose={() => setIsPreviewDocModalOpen(false)}
-        title="Original Petition Document Preview"
+        title={`Petition Document & OCR Inspection: ${selectedDocForInspection?.name || 'Document'}`}
         description={`Classified Archive: ${complaint.id}`}
-        maxWidth="2xl"
+        maxWidth="4xl"
       >
         <div className="space-y-4">
-          <div className="p-6 bg-slate-100 rounded-xl border border-slate-200 min-h-[300px] flex flex-col justify-between">
-            <div className="space-y-3 font-serif text-slate-800 text-sm leading-relaxed border-b border-slate-300 pb-4">
-              <div className="text-center font-bold uppercase tracking-wider text-xs text-slate-600">
-                GOVERNMENT OF KARNATAKA &bull; GRIEVANCE PETITION
-              </div>
-              <p className="text-xs text-slate-500 font-mono text-right">Date: {complaint.registeredAt}</p>
-              <p className="font-bold">TO: THE DEPUTY COMMISSIONER, BENGALURU URBAN DISTRICT</p>
-              <p className="font-bold">FROM: {complaint.citizen.name}, {complaint.citizen.address}</p>
-              <p className="font-bold">SUBJECT: {complaint.details.title}</p>
-              <p className="mt-3">{complaint.details.description}</p>
-              <p className="mt-3 font-semibold">PRAYER / RELIEF SOUGHT: {complaint.details.requestedAction}</p>
-            </div>
-            <div className="flex justify-between items-center text-xs text-slate-500 pt-3">
-              <span>Status: Electronically verified via JanSetu OCR Service</span>
-              <span className="font-mono text-emerald-700 font-semibold">HASH: 8F7E...4A12</span>
-            </div>
-          </div>
-          <div className="flex justify-end">
+          <OcrPanel
+            documentId={selectedDocForInspection?.id}
+            documentName={selectedDocForInspection?.name}
+            file={selectedDocForInspection ? { name: selectedDocForInspection.name, size: selectedDocForInspection.size, url: selectedDocForInspection.url } : null}
+            rawText={complaint.ocrAiExtraction?.rawText}
+            reviewedText={complaint.ocrAiExtraction?.reviewedText}
+          />
+          <div className="flex justify-end pt-2">
             <Button variant="outline" size="sm" onClick={() => setIsPreviewDocModalOpen(false)}>
               Close Document
             </Button>

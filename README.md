@@ -142,6 +142,16 @@ The frontend accesses all data through typed service classes in `src/services/ap
 - `POST /escalations` $\to$ PA creates escalation request
 - `POST /escalations/:id/decide` $\to$ DC Admin approves or rejects with executive remarks
 
+#### Documents & OCR Extraction (`/api/v1/documents`)
+- `POST /documents/extract-text` $\to$ Pre-registration text extraction (`file`, `languages=eng+kan`) from PDF/DOCX/images
+- `GET /documents/ocr/status` $\to$ Returns Tesseract OCR installation status, version, and language models (`eng`, `kan`)
+- `POST /grievances/:id/documents` $\to$ Attach binary document file to registered grievance
+- `GET /grievances/:id/documents` $\to$ List attachments for a grievance
+- `GET /documents/:id/download` $\to$ Binary document preview or attachment download
+- `POST /documents/:id/ocr` $\to$ Trigger OCR extraction on an attached document
+- `GET /documents/:id/ocr` $\to$ Fetch OCR extraction and review state
+- `PATCH /documents/:id/ocr/review` $\to$ Save human-reviewed / corrected text without altering raw OCR
+
 #### Reports & Audit (`/api/v1/reports`, `/api/v1/audit`)
 - `GET /reports/dashboard` $\to$ Aggregated KPI statistics
 - `GET /reports/departments` $\to$ Department compliance rates

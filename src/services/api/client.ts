@@ -73,6 +73,37 @@ export const tokenStorage = {
   },
 };
 
+/**
+ * Helper to inspect the current backend role from user object or JWT token claims.
+ */
+export const getCurrentBackendRole = (user?: { backendRole?: string } | null): string | null => {
+  if (user?.backendRole) {
+    return user.backendRole;
+  }
+  const token = tokenStorage.getAccessToken();
+  if (token) {
+    try {
+      const parts = token.split('.');
+      if (parts.length >= 2) {
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+          atob(base64)
+            .split('')
+            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+        const payload = JSON.parse(jsonPayload);
+        if (payload?.role) {
+          return payload.role;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+};
+
 interface RequestOptions extends RequestInit {
   params?: Record<string, any>;
   skipAuth?: boolean;
@@ -127,8 +158,10 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     }
   }
 
+  const isFormData = typeof FormData !== 'undefined' && rest.body instanceof FormData;
+
   const finalHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(headers as Record<string, string>),
   };
 
@@ -241,10 +274,18 @@ export const apiClient = {
     return request<T>(endpoint, { ...options, method: 'GET' });
   },
   post<T>(endpoint: string, data?: any, options?: RequestOptions): Promise<T> {
+    const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
     return request<T>(endpoint, {
       ...options,
       method: 'POST',
-      body: data !== undefined ? JSON.stringify(data) : undefined,
+      body: data !== undefined ? (isFormData ? data : JSON.stringify(data)) : undefined,
+    });
+  },
+  upload<T>(endpoint: string, formData: FormData, options?: RequestOptions): Promise<T> {
+    return request<T>(endpoint, {
+      ...options,
+      method: 'POST',
+      body: formData,
     });
   },
   patch<T>(endpoint: string, data?: any, options?: RequestOptions): Promise<T> {
