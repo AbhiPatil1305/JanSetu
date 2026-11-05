@@ -161,6 +161,28 @@ export class DocumentsService {
     ocr_status: OcrStatus;
     ocr_error?: string | null;
     languages: string;
+    extracted_fields?: {
+      citizen_name?: string;
+      phone?: string;
+      email?: string;
+      address?: string;
+      district?: string;
+      taluk?: string;
+      village_locality?: string;
+      title?: string;
+      category?: string;
+      incident_date?: string;
+      incident_location?: string;
+      description?: string;
+      requested_action?: string;
+      language?: 'kannada' | 'english' | 'bilingual';
+      confidence_scores?: {
+        citizen?: 'HIGH' | 'NEEDS_REVIEW' | 'MISSING';
+        category?: 'HIGH' | 'NEEDS_REVIEW' | 'MISSING';
+        location?: 'HIGH' | 'NEEDS_REVIEW' | 'MISSING';
+        date?: 'HIGH' | 'NEEDS_REVIEW' | 'MISSING';
+      };
+    };
   }> {
     if (USE_MOCK_API) {
       await delay(300);
@@ -177,6 +199,16 @@ export class DocumentsService {
     formData.append('file', file);
     formData.append('languages', languages);
     return apiClient.upload('/documents/extract-text', formData);
+  }
+  /**
+   * Extract form fields from raw or reviewed petition text using backend parser.
+   */
+  async extractFormFields(text: string): Promise<any> {
+    if (USE_MOCK_API) {
+      await delay(100);
+      return null;
+    }
+    return apiClient.post('/documents/extract-form-fields', { text });
   }
 }
 

@@ -7,6 +7,7 @@ import { complaintsService } from '../../services/api/complaints.service';
 import { departmentsService } from '../../services/api/departments.service';
 import { officersService } from '../../services/api/officers.service';
 import { documentsService } from '../../services/api/documents.service';
+import { parsePetitionText, ParsedPetitionData } from '../../utils/petitionParser';
 import { Department, PoliceStation } from '../../types/department';
 import { User } from '../../types/auth';
 import { ComplaintPriority, ConfidenceLevel, Complaint } from '../../types/complaint';
@@ -88,6 +89,45 @@ export const RegisterComplaintPage: React.FC = () => {
   const [requestedAction, setRequestedAction] = useState('');
   const [complaintLanguage, setComplaintLanguage] = useState<'kannada' | 'english' | 'bilingual'>('english');
   const [referenceNumber, setReferenceNumber] = useState('');
+  const [hasAutoFilled, setHasAutoFilled] = useState(false);
+
+  const applyExtractedDataToForm = (data: ParsedPetitionData, showNotice = false) => {
+    if (data.citizenName) setCitizenName(data.citizenName);
+    if (data.citizenPhone) setCitizenPhone(data.citizenPhone);
+    if (data.citizenEmail) setCitizenEmail(data.citizenEmail);
+    if (data.citizenAddress) setCitizenAddress(data.citizenAddress);
+    if (data.taluk) setTaluk(data.taluk);
+    if (data.villageLocality) setVillageLocality(data.villageLocality);
+    if (data.complaintTitle) setComplaintTitle(data.complaintTitle);
+    if (data.complaintCategory) setComplaintCategory(data.complaintCategory);
+    if (data.incidentDate) setIncidentDate(data.incidentDate);
+    if (data.incidentLocation) setIncidentLocation(data.incidentLocation);
+    if (data.complaintDesc) setComplaintDesc(data.complaintDesc);
+    if (data.requestedAction) setRequestedAction(data.requestedAction);
+    if (data.complaintLanguage) setComplaintLanguage(data.complaintLanguage);
+    if (data.englishSummary) setEnglishSummary(data.englishSummary);
+    if (data.kannadaSummary) setKannadaSummary(data.kannadaSummary);
+    if (data.confidenceScores) setConfidenceScores(data.confidenceScores);
+    setHasAutoFilled(true);
+
+    if (showNotice) {
+      showToast(
+        'Form Fields Auto-Filled',
+        'Citizen contact, grievance classification, and incident details successfully populated from document.',
+        'success'
+      );
+    }
+  };
+
+  const handleAutoFillFromText = (showNotice = true) => {
+    const textToParse = reviewedOcr || rawOcr;
+    if (!textToParse || !textToParse.trim()) {
+      showToast('No Document Text', 'Please extract or enter document text first.', 'warning');
+      return;
+    }
+    const parsed = parsePetitionText(textToParse);
+    applyExtractedDataToForm(parsed, showNotice);
+  };
 
   // Dependent cascading selectors
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -195,15 +235,31 @@ export const RegisterComplaintPage: React.FC = () => {
         const extracted = res.extracted_text || '';
         setRawOcr(extracted);
         setReviewedOcr(extracted);
-        if (extracted && !englishSummary) {
-          setEnglishSummary(extracted.slice(0, 300));
+
+        // Auto-extract structured form entities from petition text
+        const parsed = parsePetitionText(extracted);
+        if (res.extracted_fields) {
+          if (res.extracted_fields.citizen_name) parsed.citizenName = res.extracted_fields.citizen_name;
+          if (res.extracted_fields.phone) parsed.citizenPhone = res.extracted_fields.phone;
+          if (res.extracted_fields.email) parsed.citizenEmail = res.extracted_fields.email;
+          if (res.extracted_fields.address) parsed.citizenAddress = res.extracted_fields.address;
+          if (res.extracted_fields.taluk) parsed.taluk = res.extracted_fields.taluk;
+          if (res.extracted_fields.village_locality) parsed.villageLocality = res.extracted_fields.village_locality;
+          if (res.extracted_fields.title) parsed.complaintTitle = res.extracted_fields.title;
+          if (res.extracted_fields.category) parsed.complaintCategory = res.extracted_fields.category;
+          if (res.extracted_fields.incident_date) parsed.incidentDate = res.extracted_fields.incident_date;
+          if (res.extracted_fields.incident_location) parsed.incidentLocation = res.extracted_fields.incident_location;
+          if (res.extracted_fields.requested_action) parsed.requestedAction = res.extracted_fields.requested_action;
+          if (res.extracted_fields.language) parsed.complaintLanguage = res.extracted_fields.language;
         }
+        applyExtractedDataToForm(parsed, false);
+
         if (res.ocr_status === 'FAILED' && res.ocr_error) {
           showToast('OCR Notice', res.ocr_error, 'warning');
         } else {
           showToast(
-            'Document Text Extracted',
-            `Successfully extracted text from ${droppedFile.name}. Review below.`,
+            'Document Extracted & Form Pre-Filled',
+            `Successfully extracted text and populated form fields from ${droppedFile.name}. Review below.`,
             'success'
           );
         }
@@ -215,6 +271,8 @@ export const RegisterComplaintPage: React.FC = () => {
             const textContent = (e.target?.result as string) || '';
             setRawOcr(textContent);
             setReviewedOcr(textContent);
+            const parsed = parsePetitionText(textContent);
+            applyExtractedDataToForm(parsed, false);
           };
           reader.readAsText(droppedFile);
         } else {
@@ -659,6 +717,54 @@ export const RegisterComplaintPage: React.FC = () => {
             </CardContent>
           </Card>
 
+          {/* Form Auto-Fill Preview & Action Card */}
+          <Card className="border-amber-200 bg-amber-50/20">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-bold flex items-center gap-2 text-slate-900">
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  <span>Detected Form Fields (Ready to Pre-Fill)</span>
+                </CardTitle>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => handleAutoFillFromText(true)}
+                  className="bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 shadow-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Re-extract & Fill Form</span>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 p-5 pt-2 text-xs">
+              <p className="text-slate-600">
+                The platform analyzes the extracted petition text to detect citizen identity, phone number, grievance classification, dates, and demanded relief. Click below to proceed to the form.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Citizen Name</span>
+                  <p className="font-semibold text-slate-800 truncate">{citizenName || <span className="text-slate-400 italic">Not detected</span>}</p>
+                </div>
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Mobile Number</span>
+                  <p className="font-semibold text-slate-800 font-mono truncate">{citizenPhone || <span className="text-slate-400 italic">Not detected</span>}</p>
+                </div>
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Category</span>
+                  <p className="font-semibold text-slate-800 truncate">{complaintCategory || 'General Grievance'}</p>
+                </div>
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Incident Date</span>
+                  <p className="font-semibold text-slate-800 font-mono truncate">{incidentDate || <span className="text-slate-400 italic">Not detected</span>}</p>
+                </div>
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs sm:col-span-2">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Incident Location / Taluk</span>
+                  <p className="font-semibold text-slate-800 truncate">{incidentLocation || villageLocality ? `${incidentLocation || villageLocality}, ${taluk}` : <span className="text-slate-400 italic">Not detected</span>}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="flex justify-between items-center pt-4">
             <Button
               variant="outline"
@@ -672,7 +778,13 @@ export const RegisterComplaintPage: React.FC = () => {
               variant="primary"
               size="md"
               rightIcon={<ChevronRight className="w-4 h-4" />}
-              onClick={() => setCurrentStage(3)}
+              onClick={() => {
+                // Ensure form has latest parsed fields before transitioning
+                if (!hasAutoFilled && (reviewedOcr || rawOcr)) {
+                  handleAutoFillFromText(false);
+                }
+                setCurrentStage(3);
+              }}
             >
               Verify & Complete Case Form
             </Button>
@@ -691,6 +803,26 @@ export const RegisterComplaintPage: React.FC = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-6 p-6 text-xs">
+              {/* Notice that fields have been auto-filled */}
+              {hasAutoFilled && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-3.5 flex items-center justify-between text-xs shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span>
+                      <strong>Form Pre-Filled:</strong> Citizen details, classification, and incident description have been extracted from the petition document. Please verify or edit each field below.
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleAutoFillFromText(true)}
+                    className="bg-white hover:bg-emerald-100/60 border-emerald-300 text-emerald-800"
+                  >
+                    Re-sync from OCR Text
+                  </Button>
+                </div>
+              )}
+
               {/* Section 1: Citizen Details */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2 pb-2 border-b border-slate-100">
