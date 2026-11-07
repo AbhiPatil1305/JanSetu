@@ -5,6 +5,8 @@ export interface FollowupRecord {
   complaintId: string;
   complaintTitle: string;
   citizenName: string;
+  citizenPhone?: string;
+  officerPhone?: string;
   departmentName: string;
   stationName: string;
   officerId: string;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../providers/AuthContext';
 import { useNotifications } from '../../providers/NotificationContext';
 import { officersService } from '../../services/api/officers.service';
@@ -8,12 +8,17 @@ import { Button } from '../../components/common/Button';
 import { Shield, Phone, Mail, User as UserIcon, Building2, Save } from 'lucide-react';
 
 export const OfficerProfilePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, updateCurrentUser } = useAuth();
   const { showToast } = useNotifications();
 
   const [phone, setPhone] = useState(user?.phone || '+91 94808 01011');
   const [email, setEmail] = useState(user?.email || 'officer@jansetu.demo');
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (user?.phone) setPhone(user.phone);
+    if (user?.email) setEmail(user.email);
+  }, [user?.phone, user?.email]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,7 +30,8 @@ export const OfficerProfilePage: React.FC = () => {
         phone,
         email,
       });
-      showToast('Profile Updated', 'Official communication contacts updated.', 'success');
+      updateCurrentUser({ phone, email });
+      showToast('Profile Updated', `Official contact phone updated to ${phone}.`, 'success');
     } catch (err: any) {
       showToast('Error', err.message, 'error');
     } finally {

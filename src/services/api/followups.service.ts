@@ -67,16 +67,22 @@ class FollowupsService {
     const grievanceMap = new Map<string, BackendGrievanceListResponse>();
     (grievancesData.items || []).forEach((g) => grievanceMap.set(g.id, g));
 
+    const allOfficers = mockStorage.getOfficers();
+
     return (taskData.items || []).map((t) => {
       const g = grievanceMap.get(t.grievance_id);
+      const comp = mockStorage.getComplaintById(g?.grievance_number || t.grievance_id);
+      const matchedOfficer = allOfficers.find((o) => o.id === t.assigned_to_user_id || o.name === 'Inspector Ramesh Patil');
       const dueDate = t.due_at.split('T')[0];
       const daysOverdue = Math.max(0, Math.floor((Date.now() - new Date(t.due_at).getTime()) / (1000 * 86400)));
 
       return {
         id: t.id,
         complaintId: g?.grievance_number || t.grievance_id,
-        complaintTitle: g?.title || 'Active Grievance Follow-up',
-        citizenName: 'Citizen Complainant',
+        complaintTitle: g?.title || comp?.details?.title || 'Active Grievance Follow-up',
+        citizenName: comp?.citizen?.name || 'Citizen Complainant',
+        citizenPhone: comp?.citizen?.phone || '+91 76763 94332',
+        officerPhone: matchedOfficer?.phone || '+91 94808 01011',
         departmentName: 'Police Department',
         stationName: 'Central Police Station',
         officerId: t.assigned_to_user_id || 'officer',

@@ -11,6 +11,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (emailOrId: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
+  updateCurrentUser: (updates: Partial<User>) => void;
   switchRoleDemo: (targetRole: UserRole) => Promise<User>;
   resetDemoData: () => void;
 }
@@ -81,6 +82,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
+  const updateCurrentUser = (updates: Partial<User>) => {
+    setUser((prev) => (prev ? { ...prev, ...updates } : null));
+    authService.updateStoredUser(updates);
+  };
+
   const switchRoleDemo = async (targetRole: UserRole): Promise<User> => {
     let email = 'admin@jansetu.demo';
     if (targetRole === 'DC_PA') email = 'pa@jansetu.demo';
@@ -101,6 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         login,
         logout,
+        updateCurrentUser,
         switchRoleDemo,
         resetDemoData,
       }}

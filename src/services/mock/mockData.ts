@@ -395,7 +395,7 @@ export const INITIAL_COMPLAINTS: Complaint[] = [
     id: 'JNS-2026-BLR-0001',
     citizen: {
       name: 'Chandrashekar S. Murthy',
-      phone: '+91 98450 12345',
+      phone: '+91 76763 94332',
       email: 'c.murthy@gmail.com',
       address: '#45, 1st Cross, Koramangala 4th Block',
       district: 'Bengaluru Urban',
@@ -442,7 +442,7 @@ export const INITIAL_COMPLAINTS: Complaint[] = [
       suggestedIncidentLocation: 'Koramangala 4th Block, 80ft Road',
       suggestedComplaintDate: getPastDate(12),
       suggestedCitizenName: 'Chandrashekar S. Murthy',
-      suggestedPhone: '+91 98450 12345',
+      suggestedPhone: '+91 76763 94332',
       confidenceScores: {
         citizen: 'HIGH',
         category: 'HIGH',
@@ -1148,6 +1148,8 @@ export const INITIAL_FOLLOWUPS: FollowupRecord[] = INITIAL_COMPLAINTS
     complaintId: c.id,
     complaintTitle: c.details.title,
     citizenName: c.citizen.name,
+    citizenPhone: c.citizen.phone || '+91 76763 94332',
+    officerPhone: '+91 94808 01001',
     departmentName: c.assignment!.departmentName,
     stationName: c.assignment!.stationName,
     officerId: c.assignment!.officerId,

@@ -41,6 +41,7 @@ import {
   Languages,
   Globe,
   Loader2,
+  Phone,
 } from 'lucide-react';
 
 
@@ -1399,7 +1400,7 @@ export const RegisterComplaintPage: React.FC = () => {
                       ) : (
                         officers.map((off) => (
                           <option key={off.id} value={off.id}>
-                            {off.name} ({off.designation})
+                            {off.name} ({off.designation}{off.phone ? ` • ${off.phone}` : ''})
                           </option>
                         ))
                       )}
@@ -1528,7 +1529,13 @@ export const RegisterComplaintPage: React.FC = () => {
                     <p className="text-sm font-bold text-slate-900">
                       {officers.find((o) => o.id === selectedOfficerId)?.name || 'Awaiting Supervisor Assignment'}
                     </p>
-                    <p className="text-slate-600">
+                    {officers.find((o) => o.id === selectedOfficerId)?.phone && (
+                      <p className="text-xs font-mono text-emerald-700 flex items-center gap-1 mt-0.5">
+                        <Phone className="w-3 h-3 text-emerald-600" />
+                        {officers.find((o) => o.id === selectedOfficerId)?.phone}
+                      </p>
+                    )}
+                    <p className="text-slate-600 text-xs mt-0.5">
                       {stations.find((s) => s.id === selectedStationId)?.name}
                     </p>
                   </div>

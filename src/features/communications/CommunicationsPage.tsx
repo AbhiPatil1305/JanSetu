@@ -116,6 +116,8 @@ export const CommunicationsPage: React.FC = () => {
     switch (commType) {
       case 'PHONE_CALL':
         return <Phone className="w-4 h-4 text-emerald-600" />;
+      case 'WHATSAPP':
+        return <MessageSquare className="w-4 h-4 text-emerald-600" />;
       case 'EMAIL':
         return <Mail className="w-4 h-4 text-blue-600" />;
       case 'LETTER':
@@ -158,6 +160,7 @@ export const CommunicationsPage: React.FC = () => {
             className="p-2 border border-slate-200 rounded-lg bg-white text-slate-700"
           >
             <option value="">All Channels</option>
+            <option value="WHATSAPP">WhatsApp Message</option>
             <option value="PHONE_CALL">Phone Call</option>
             <option value="EMAIL">Email</option>
             <option value="LETTER">Official Letter</option>
@@ -258,6 +261,7 @@ export const CommunicationsPage: React.FC = () => {
                 onChange={(e) => setType(e.target.value as any)}
                 className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white"
               >
+                <option value="WHATSAPP">WhatsApp Message</option>
                 <option value="PHONE_CALL">Phone Call</option>
                 <option value="EMAIL">Email</option>
                 <option value="LETTER">Official Letter / Memo</option>

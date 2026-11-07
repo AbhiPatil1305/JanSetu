@@ -1,4 +1,4 @@
-export type CommunicationType = 'PHONE_CALL' | 'EMAIL' | 'LETTER' | 'IN_APP' | 'OTHER';
+export type CommunicationType = 'PHONE_CALL' | 'EMAIL' | 'LETTER' | 'IN_APP' | 'WHATSAPP' | 'OTHER';
 export type CommunicationDeliveryStatus = 'GENERATED' | 'SENT' | 'DELIVERED' | 'ACKNOWLEDGED';
 
 export interface CommunicationRecord {

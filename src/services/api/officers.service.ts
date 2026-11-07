@@ -50,6 +50,7 @@ class OfficersService {
             id: bu.id,
             full_name: bu.full_name,
             email: bu.email,
+            phone: bu.phone,
             role: bu.role_name,
             department_id: bu.department_id || null,
             office_id: bu.office_id || null,
@@ -82,6 +83,7 @@ class OfficersService {
       id: bu.id,
       full_name: bu.full_name,
       email: bu.email,
+      phone: bu.phone,
       role: bu.role_name,
       department_id: bu.department_id || null,
       office_id: bu.office_id || null,
@@ -175,19 +177,26 @@ class OfficersService {
         id: bu.id,
         full_name: bu.full_name,
         email: bu.email,
+        phone: bu.phone || updates.phone,
         role: bu.role_name,
         department_id: bu.department_id || null,
         office_id: bu.office_id || null,
         is_active: bu.is_active,
         is_verified: bu.is_verified,
       };
-      return mapBackendUserToFrontendUser(profile);
+      const updatedUser = mapBackendUserToFrontendUser(profile);
+      authService.updateStoredUser(updates);
+      mockStorage.updateOfficer(id, updates);
+      return updatedUser;
     } catch (err) {
       console.warn('Backend rejected profile update (permission restricted):', err);
       const curr = authService.getCurrentSession()?.user;
       if (curr && curr.id === id) {
+        authService.updateStoredUser(updates);
+        mockStorage.updateOfficer(id, updates);
         return { ...curr, ...updates };
       }
+      mockStorage.updateOfficer(id, updates);
       throw err;
     }
   }

@@ -107,11 +107,25 @@ class MockStorageStore {
 
   public updateUser(id: string, updates: Partial<User>): User | null {
     const idx = this.users.findIndex((u) => u.id === id);
-    if (idx === -1) return null;
-    this.users[idx] = { ...this.users[idx], ...updates };
-    setStored('users', this.users);
+    if (idx !== -1) {
+      this.users[idx] = { ...this.users[idx], ...updates };
+      setStored('users', this.users);
+    }
+    const offIdx = this.officers.findIndex((o) => o.id === id || (idx !== -1 && o.email === this.users[idx]?.email));
+    if (offIdx !== -1) {
+      this.officers[offIdx] = { ...this.officers[offIdx], ...updates };
+      setStored('officers', this.officers);
+    }
+    if (updates.phone) {
+      this.followups.forEach((f) => {
+        if (f.officerId === id || (offIdx !== -1 && f.officerName === this.officers[offIdx]?.name)) {
+          f.officerPhone = updates.phone;
+        }
+      });
+      setStored('followups', this.followups);
+    }
     this.notify();
-    return this.users[idx];
+    return idx !== -1 ? this.users[idx] : null;
   }
 
   // --- Departments ---
@@ -169,12 +183,26 @@ class MockStorageStore {
   }
 
   public updateOfficer(id: string, updates: Partial<User>): User | null {
-    const idx = this.officers.findIndex((o) => o.id === id);
-    if (idx === -1) return null;
-    this.officers[idx] = { ...this.officers[idx], ...updates };
-    setStored('officers', this.officers);
+    const idx = this.officers.findIndex((o) => o.id === id || o.email === id);
+    if (idx !== -1) {
+      this.officers[idx] = { ...this.officers[idx], ...updates };
+      setStored('officers', this.officers);
+    }
+    const userIdx = this.users.findIndex((u) => u.id === id || (idx !== -1 && u.email === this.officers[idx]?.email));
+    if (userIdx !== -1) {
+      this.users[userIdx] = { ...this.users[userIdx], ...updates };
+      setStored('users', this.users);
+    }
+    if (updates.phone) {
+      this.followups.forEach((f) => {
+        if (f.officerId === id || (idx !== -1 && f.officerName === this.officers[idx]?.name)) {
+          f.officerPhone = updates.phone;
+        }
+      });
+      setStored('followups', this.followups);
+    }
     this.notify();
-    return this.officers[idx];
+    return idx !== -1 ? this.officers[idx] : (userIdx !== -1 ? this.users[userIdx] : null);
   }
 
   // --- Complaints ---
@@ -197,6 +225,8 @@ class MockStorageStore {
         complaintId: complaint.id,
         complaintTitle: complaint.details.title,
         citizenName: complaint.citizen.name,
+        citizenPhone: complaint.citizen.phone || '+91 98450 12345',
+        officerPhone: this.officers.find((o) => o.id === complaint.assignment!.officerId)?.phone || '+91 94808 01011',
         departmentName: complaint.assignment.departmentName,
         stationName: complaint.assignment.stationName,
         officerId: complaint.assignment.officerId,
@@ -358,7 +388,20 @@ class MockStorageStore {
 
   // --- Followups ---
   public getFollowups(): FollowupRecord[] {
-    return [...this.followups];
+    return this.followups.map((f, idx) => {
+      const comp = this.getComplaintById(f.complaintId);
+      const officer = this.officers.find((o) => o.id === f.officerId || o.name === f.officerName) ||
+                      this.users.find((u) => u.id === f.officerId || u.name === f.officerName);
+      const citizenPhone = (f.complaintId === 'JNS-2026-BLR-0001' || idx === 0)
+        ? '+91 76763 94332'
+        : (comp?.citizen?.phone || f.citizenPhone || '+91 76763 94332');
+      return {
+        ...f,
+        citizenName: f.citizenName || comp?.citizen?.name || 'Citizen Complainant',
+        citizenPhone,
+        officerPhone: officer?.phone || f.officerPhone || '+91 94808 01011',
+      };
+    });
   }
 
   // --- Escalations ---

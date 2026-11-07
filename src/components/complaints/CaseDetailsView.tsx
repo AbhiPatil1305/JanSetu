@@ -64,7 +64,7 @@ export const CaseDetailsView: React.FC = () => {
   const [selectedDocForInspection, setSelectedDocForInspection] = useState<ComplaintDocument | null>(null);
 
   // Form states for modals
-  const [commType, setCommType] = useState<'PHONE_CALL' | 'EMAIL' | 'LETTER'>('PHONE_CALL');
+  const [commType, setCommType] = useState<'PHONE_CALL' | 'EMAIL' | 'LETTER' | 'WHATSAPP'>('PHONE_CALL');
   const [commRecipient, setCommRecipient] = useState('');
   const [commSubject, setCommSubject] = useState('');
   const [commMessage, setCommMessage] = useState('');
@@ -80,6 +80,7 @@ export const CaseDetailsView: React.FC = () => {
 
   const [reviewRemarks, setReviewRemarks] = useState('');
   const [timelineEvents, setTimelineEvents] = useState<any[]>([]);
+  const [assignedOfficerPhone, setAssignedOfficerPhone] = useState<string>('');
 
   const loadCase = async () => {
     if (!id) return;
@@ -88,6 +89,13 @@ export const CaseDetailsView: React.FC = () => {
       const data = await complaintsService.getComplaintById(id);
       setComplaint(data);
       complaintsService.getComplaintTimeline(id).then(setTimelineEvents).catch(() => {});
+      if (data?.assignment?.officerId) {
+        officersService.getOfficerById(data.assignment.officerId)
+          .then((off) => {
+            if (off?.phone) setAssignedOfficerPhone(off.phone);
+          })
+          .catch(() => {});
+      }
     } catch (err: any) {
       showToast('Error', err.message || 'Failed to load grievance details', 'error');
     } finally {
@@ -705,6 +713,12 @@ export const CaseDetailsView: React.FC = () => {
                     <span className="text-xs font-bold text-slate-400 uppercase">Assigned Police Officer</span>
                     <p className="text-base font-bold text-slate-900">{complaint.assignment.officerName}</p>
                     <p className="text-xs text-slate-600">{complaint.assignment.officerDesignation}</p>
+                    {assignedOfficerPhone && (
+                      <p className="text-xs font-mono text-emerald-700 flex items-center gap-1.5 mt-1 font-semibold">
+                        <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{assignedOfficerPhone}</span>
+                      </p>
+                    )}
                   </div>
                   <div>
                     <span className="text-xs font-bold text-slate-400 uppercase">Police Station / Unit</span>
@@ -1033,6 +1047,7 @@ export const CaseDetailsView: React.FC = () => {
                 onChange={(e) => setCommType(e.target.value as any)}
                 className="w-full p-2 border border-slate-200 rounded-lg"
               >
+                <option value="WHATSAPP">WhatsApp Message</option>
                 <option value="PHONE_CALL">Phone Call</option>
                 <option value="EMAIL">Email</option>
                 <option value="LETTER">Official Letter</option>

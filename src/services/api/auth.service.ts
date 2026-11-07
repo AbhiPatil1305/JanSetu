@@ -22,6 +22,7 @@ export interface BackendUserProfile {
   id: string;
   full_name: string;
   email: string;
+  phone?: string | null;
   role: string;
   department_id: string | null;
   office_id: string | null;
@@ -106,7 +107,7 @@ export function mapBackendUserToFrontendUser(profile: BackendUserProfile): User 
     stationId: profile.office_id || undefined,
     stationName: profile.office_id ? 'Central Police Station' : undefined,
     designation,
-    phone: '+91 94481 00000',
+    phone: profile.phone || (role === 'POLICE_OFFICER' ? '+91 94808 01011' : '+91 94481 00000'),
     status: profile.is_active ? 'active' : 'inactive',
     badgeNumber,
   };
@@ -264,6 +265,7 @@ class AuthService {
         id: bu.id,
         full_name: bu.full_name,
         email: bu.email,
+        phone: bu.phone,
         role: bu.role_name,
         department_id: bu.department_id || null,
         office_id: bu.office_id || null,
@@ -306,6 +308,7 @@ class AuthService {
       id: res.id,
       full_name: res.full_name,
       email: res.email,
+      phone: res.phone,
       role: res.role_name,
       department_id: res.department_id || null,
       office_id: res.office_id || null,
@@ -332,6 +335,7 @@ class AuthService {
       id: res.id,
       full_name: res.full_name,
       email: res.email,
+      phone: res.phone,
       role: res.role_name,
       department_id: res.department_id || null,
       office_id: res.office_id || null,
@@ -339,6 +343,15 @@ class AuthService {
       is_verified: res.is_verified,
     };
     return mapBackendUserToFrontendUser(profile);
+  }
+
+  updateStoredUser(updates: Partial<User>): User | null {
+    const session = this.getCurrentSession();
+    if (!session || !session.user) return null;
+    const updatedUser = { ...session.user, ...updates };
+    session.user = updatedUser;
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    return updatedUser;
   }
 }
 
