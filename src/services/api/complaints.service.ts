@@ -255,15 +255,25 @@ class ComplaintsService {
         complaint.documents = docs.map((d: any) => ({
           id: d.id,
           name: d.document_name || d.original_filename || 'Petition Document',
+          originalFilename: d.original_filename || d.document_name,
           size: d.file_size || 0,
           type: d.mime_type || 'application/pdf',
-          url: d.download_url ? `${API_BASE_URL}${d.download_url}` : '#',
+          url: d.download_url
+            ? d.download_url.startsWith('http')
+              ? d.download_url
+              : `${API_BASE_URL.replace(/\/api\/v1\/?$/, '')}${d.download_url}`
+            : '#',
           uploadedAt: d.created_at ? d.created_at.replace('T', ' ').substring(0, 19) : '',
-          isOriginal: true,
+          isOriginal: d.document_type === 'PETITION' || (!d.parent_document_id && d.document_type !== 'TRANSLATION'),
+          documentType: d.document_type || 'PETITION',
+          language: d.language || 'en',
+          parentDocumentId: d.parent_document_id || null,
           ocrStatus: d.ocr_status || 'NOT_STARTED',
           ocrLanguage: d.ocr_language,
           ocrProcessedAt: d.ocr_processed_at,
           ocrError: d.ocr_error,
+          extractedText: d.extracted_text || null,
+          reviewedText: d.reviewed_text || null,
         }));
       }
     } catch {
@@ -569,7 +579,10 @@ class ComplaintsService {
     filename: string,
     documentType: string = 'PETITION',
     language: string = 'en',
-    documentName?: string
+    documentName?: string,
+    parentDocumentId?: string,
+    extractedText?: string,
+    reviewedText?: string
   ): Promise<any> {
     if (USE_MOCK_API) {
       await delay(100);
@@ -582,6 +595,7 @@ class ComplaintsService {
         file_size: file.size,
         document_type: documentType,
         language,
+        parent_document_id: parentDocumentId || null,
         created_at: new Date().toISOString(),
       };
     }
@@ -592,6 +606,15 @@ class ComplaintsService {
     formData.append('language', language);
     if (documentName) {
       formData.append('document_name', documentName);
+    }
+    if (parentDocumentId) {
+      formData.append('parent_document_id', parentDocumentId);
+    }
+    if (extractedText) {
+      formData.append('extracted_text', extractedText);
+    }
+    if (reviewedText) {
+      formData.append('reviewed_text', reviewedText);
     }
 
     return apiClient.upload<any>(`/grievances/${complaintId}/documents`, formData);

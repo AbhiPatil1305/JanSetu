@@ -1,4 +1,4 @@
-import { apiClient, delay, USE_MOCK_API } from './client';
+import { apiClient, delay, USE_MOCK_API, tokenStorage, API_BASE_URL } from './client';
 
 export type OcrStatus = 'NOT_STARTED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'NEEDS_REVIEW';
 
@@ -209,6 +209,198 @@ export class DocumentsService {
       return null;
     }
     return apiClient.post('/documents/extract-form-fields', { text });
+  }
+
+  /**
+   * Download a grievance document file directly with auth headers.
+   */
+  async downloadDocument(documentId: string, filename?: string): Promise<void> {
+    if (USE_MOCK_API) {
+      await delay(100);
+      const blob = new Blob(['Mock document content'], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `document_${documentId}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      return;
+    }
+
+    const token = tokenStorage.getAccessToken();
+    const downloadEndpoint = `${API_BASE_URL}/documents/${documentId}/download`;
+    const response = await fetch(downloadEndpoint, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download failed with status ${response.status}`);
+    }
+
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (contentType.includes('text/html')) {
+      const htmlText = await response.text();
+      if (
+        htmlText.includes('<!doctype html') ||
+        htmlText.includes('/@vite/client') ||
+        htmlText.includes('/src/main.tsx') ||
+        htmlText.includes('<div id="root">')
+      ) {
+        throw new Error(
+          'Document download error: Received Vite frontend HTML fallback instead of document file. Ensure backend is running.'
+        );
+      }
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || `document_${documentId}`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  }
+
+  /**
+   * Fetch document preview / text content for inline reading.
+   */
+  async getDocumentTextContent(documentId: string): Promise<string> {
+    if (USE_MOCK_API) {
+      await delay(100);
+      return 'Mock document text content for preview.';
+    }
+
+    const token = tokenStorage.getAccessToken();
+    const previewEndpoint = `${API_BASE_URL}/documents/${documentId}/download?preview=true`;
+    const response = await fetch(previewEndpoint, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Preview failed with status ${response.status}`);
+    }
+
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    const text = await response.text();
+    if (
+      contentType.includes('text/html') ||
+      text.includes('<!doctype html') ||
+      text.includes('/@vite/client') ||
+      text.includes('/src/main.tsx')
+    ) {
+      throw new Error('Received unexpected HTML fallback instead of document text content.');
+    }
+
+    return text;
+  }
+
+  /**
+   * Fetch document as a local authenticated Blob URL for preview (PDF, Image, Text, Docx).
+   */
+  async getDocumentBlobUrl(
+    documentId: string
+  ): Promise<{
+    url: string;
+    mimeType: string;
+    isText: boolean;
+    isImage: boolean;
+    isPdf: boolean;
+    isDocx: boolean;
+    text?: string;
+  }> {
+    if (USE_MOCK_API) {
+      await delay(100);
+      const blob = new Blob(['Mock document content for offline preview.'], { type: 'text/plain' });
+      return {
+        url: window.URL.createObjectURL(blob),
+        mimeType: 'text/plain',
+        isText: true,
+        isImage: false,
+        isPdf: false,
+        isDocx: false,
+        text: 'Mock document content for offline preview.',
+      };
+    }
+
+    const token = tokenStorage.getAccessToken();
+    const previewEndpoint = `${API_BASE_URL}/documents/${documentId}/download?preview=true`;
+    const response = await fetch(previewEndpoint, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Document retrieval failed with HTTP ${response.status}`);
+    }
+
+    const contentType = (response.headers.get('content-type') || 'application/octet-stream').toLowerCase();
+
+    // Check for accidental Vite / SPA HTML fallback
+    if (contentType.includes('text/html')) {
+      const textSample = await response.text();
+      if (
+        textSample.includes('<!doctype html') ||
+        textSample.includes('/@vite/client') ||
+        textSample.includes('/src/main.tsx') ||
+        textSample.includes('<div id="root">')
+      ) {
+        throw new Error(
+          'Document preview error: Received Vite frontend HTML fallback instead of binary document. Ensure the backend API is running.'
+        );
+      }
+    }
+
+    const isPdf = contentType.includes('application/pdf');
+    const isImage = contentType.startsWith('image/');
+    const isDocx =
+      contentType.includes('wordprocessingml') ||
+      contentType.includes('msword') ||
+      contentType.includes('application/vnd.openxmlformats');
+    const isText =
+      (contentType.startsWith('text/plain') ||
+        contentType.includes('application/json') ||
+        contentType.includes('text/csv')) &&
+      !contentType.includes('text/html');
+
+    if (isText) {
+      const text = await response.text();
+      if (
+        text.trim().toLowerCase().startsWith('<!doctype html') ||
+        text.includes('/@vite/client') ||
+        text.includes('<html')
+      ) {
+        throw new Error('Received unexpected HTML response instead of document text content.');
+      }
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      return {
+        url: window.URL.createObjectURL(blob),
+        mimeType: contentType,
+        isText: true,
+        isImage: false,
+        isPdf: false,
+        isDocx: false,
+        text,
+      };
+    }
+
+    const blob = await response.blob();
+    return {
+      url: window.URL.createObjectURL(blob),
+      mimeType: contentType,
+      isText: false,
+      isImage,
+      isPdf,
+      isDocx,
+    };
   }
 }
 

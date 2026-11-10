@@ -61,15 +61,21 @@ export interface OcrAiExtraction {
 export interface ComplaintDocument {
   id: string;
   name: string;
+  originalFilename?: string;
   size: number;
   type: string;
   url: string;
   uploadedAt: string;
   isOriginal: boolean;
+  documentType?: string;
+  language?: string;
+  parentDocumentId?: string | null;
   ocrStatus?: 'NOT_STARTED' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'NEEDS_REVIEW';
   ocrLanguage?: string;
   ocrProcessedAt?: string;
   ocrError?: string;
+  extractedText?: string | null;
+  reviewedText?: string | null;
 }
 
 export interface AssignmentInfo {

@@ -8,15 +8,21 @@ import {
   Languages,
   Cpu,
   AlertCircle,
-  RefreshCw,
   SlidersHorizontal,
   FileText,
+  ListOrdered,
+  Target,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
-  webllmService,
-  AVAILABLE_WEBLLM_MODELS,
-  ProgressCallback,
-} from '../../services/ai/webllm.service';
+  summarizationService,
+  GrievanceSummary,
+  ExtractionLanguage,
+  SUPPORTED_MODELS,
+  WebLLMProgressReport,
+  webLlmManager,
+} from '../../services/ai/webllm';
 import { translationsService } from '../../services/api/translations.service';
 
 interface WebLlmSummarizerSectionProps {
@@ -44,20 +50,22 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
   getConfidenceBadge,
 }) => {
   const [selectedModel, setSelectedModel] = useState<string>(
-    AVAILABLE_WEBLLM_MODELS[0].id
+    SUPPORTED_MODELS[0].id
   );
+  const [targetLang, setTargetLang] = useState<ExtractionLanguage>('en');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
   const [progressText, setProgressText] = useState<string>('');
   const [progressPercent, setProgressPercent] = useState<number>(0);
-  const [progressStage, setProgressStage] = useState<string>('idle');
   const [copiedEng, setCopiedEng] = useState<boolean>(false);
   const [copiedKan, setCopiedKan] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastGeneratedBy, setLastGeneratedBy] = useState<string | null>(null);
+  const [structuredSummary, setStructuredSummary] = useState<GrievanceSummary | null>(null);
+  const [showKeyDetails, setShowKeyDetails] = useState<boolean>(true);
 
-  const isWebGpuAvailable = webllmService.isWebGPUSupported();
+  const isWebGpuAvailable = webLlmManager.isWebGPUSupported();
 
   const handleSummarize = async () => {
     const textToSummarize = sourceText.trim() || englishSummary.trim();
@@ -70,73 +78,88 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
 
     setIsLoading(true);
     setErrorMessage(null);
-    setStatusMessage('Preparing WebLLM in-browser model...');
+    setStatusMessage('Preparing WebLLM in-browser engine (WebGPU)...');
     setProgressPercent(5);
 
-    const onProgress: ProgressCallback = (report) => {
+    const onProgress = (report: WebLLMProgressReport) => {
       setProgressPercent(Math.round(report.progress * 100));
       setProgressText(report.text);
-      setProgressStage(report.stage);
     };
 
     try {
-      let generatedEng = '';
-      let generatedKan = '';
+      let summaryObj: GrievanceSummary;
 
       if (isWebGpuAvailable) {
-        // Run in-browser WebGPU LLM for pure English summary
-        generatedEng = await webllmService.summarizePetition(
-          textToSummarize,
-          selectedModel,
-          onProgress
-        );
-        const modelObj = AVAILABLE_WEBLLM_MODELS.find((m) => m.id === selectedModel);
-        setLastGeneratedBy(modelObj ? modelObj.name : 'WebLLM');
+        summaryObj = await summarizationService.summarizeGrievance({
+          sourceText: textToSummarize,
+          supportingTranslation: targetLang === 'kn' ? englishSummary : kannadaSummary,
+          language: targetLang,
+          modelId: selectedModel,
+          onProgress,
+        });
 
+        const modelObj = SUPPORTED_MODELS.find((m) => m.id === selectedModel);
+        setLastGeneratedBy(modelObj ? modelObj.name : 'WebLLM');
       } else {
-        // Graceful fallback for browsers without WebGPU
-        setProgressText('Generating administrative synopsis...');
-        generatedEng = webllmService.generateHeuristicSummary(textToSummarize);
+        setProgressText('Generating administrative synopsis via heuristics...');
+        summaryObj = summarizationService.generateHeuristicSummary(textToSummarize, targetLang);
         setLastGeneratedBy('Heuristic Synopsis');
       }
 
-      onEnglishSummaryChange(generatedEng);
+      setStructuredSummary(summaryObj);
 
-      // Translate directly using translation module
-      setIsTranslating(true);
-      try {
-        const transRes = await translationsService.translateText(
-          generatedEng,
-          'en',
-          'kn'
-        );
-        if (transRes?.translated_text) {
-          onKannadaSummaryChange(transRes.translated_text);
+      // Populate textareas
+      if (targetLang === 'kn') {
+        const fullKannadaText = summaryObj.detailed_summary || summaryObj.short_summary;
+        onKannadaSummaryChange(fullKannadaText);
+
+        // Optionally translate to English via IndicTrans2
+        setIsTranslating(true);
+        try {
+          const transRes = await translationsService.translateText(fullKannadaText, 'kn', 'en');
+          if (transRes?.translated_text) {
+            onEnglishSummaryChange(transRes.translated_text);
+          }
+        } catch (transErr) {
+          console.warn('Translation notice:', transErr);
+        } finally {
+          setIsTranslating(false);
         }
-      } catch (transErr: any) {
-        console.warn('Kannada translation module notice:', transErr);
-      } finally {
-        setIsTranslating(false);
+      } else {
+        const fullEnglishText = summaryObj.detailed_summary || summaryObj.short_summary;
+        onEnglishSummaryChange(fullEnglishText);
+
+        // Translate to Kannada via IndicTrans2
+        setIsTranslating(true);
+        try {
+          const transRes = await translationsService.translateText(fullEnglishText, 'en', 'kn');
+          if (transRes?.translated_text) {
+            onKannadaSummaryChange(transRes.translated_text);
+          }
+        } catch (transErr) {
+          console.warn('Translation notice:', transErr);
+        } finally {
+          setIsTranslating(false);
+        }
       }
 
-      setStatusMessage('Bilingual summaries populated in editable boxes below!');
+      setStatusMessage('Factual summaries populated in editable fields below!');
       setTimeout(() => setStatusMessage(null), 4000);
     } catch (err: any) {
       console.error('WebLLM generation error:', err);
-      // If WebLLM fails, provide heuristic summary
       try {
-        const fallback = webllmService.generateHeuristicSummary(textToSummarize);
-        onEnglishSummaryChange(fallback);
+        const fallback = summarizationService.generateHeuristicSummary(textToSummarize, targetLang);
+        setStructuredSummary(fallback);
+        onEnglishSummaryChange(fallback.detailed_summary);
         setLastGeneratedBy('Heuristic Fallback');
         setErrorMessage(
-          `WebLLM notice: ${err?.message || 'GPU memory allocation issue'}. Applied heuristic synopsis instead.`
+          `WebLLM notice: ${err?.message || 'WebGPU memory issue'}. Applied heuristic synopsis instead.`
         );
       } catch {
         setErrorMessage(err?.message || 'Failed to generate summary.');
       }
     } finally {
       setIsLoading(false);
-      setProgressStage('idle');
     }
   };
 
@@ -155,7 +178,7 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
       {/* Header Bar */}
-      <div className="bg-linear-to-r from-slate-900 via-indigo-950 to-slate-900 p-4 text-white">
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-4 text-white">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-indigo-500/20 border border-indigo-400/30 rounded-lg">
@@ -176,13 +199,42 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
                 )}
               </div>
               <p className="text-xs text-slate-400">
-                Client-side private neural summarization — zero API keys, 100% private in browser
+                Shared WebGPU in-browser inference — zero external APIs, zero data leaves device
               </p>
             </div>
           </div>
 
-          {/* Model Selector & Action Button */}
+          {/* Model Selector, Language & Action Button */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Target Language Toggle */}
+            <div className="flex items-center bg-slate-800/80 border border-slate-700 rounded-lg p-0.5">
+              <button
+                type="button"
+                onClick={() => setTargetLang('en')}
+                disabled={isLoading}
+                className={`px-2 py-1 text-xs font-medium rounded-md transition-all ${
+                  targetLang === 'en'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                English
+              </button>
+              <button
+                type="button"
+                onClick={() => setTargetLang('kn')}
+                disabled={isLoading}
+                className={`px-2 py-1 text-xs font-medium rounded-md transition-all ${
+                  targetLang === 'kn'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                ಕನ್ನಡ
+              </button>
+            </div>
+
+            {/* Model Selector */}
             <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700 rounded-lg px-2.5 py-1.5">
               <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
               <select
@@ -191,7 +243,7 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
                 disabled={isLoading}
                 className="bg-transparent text-xs text-slate-200 outline-none cursor-pointer pr-1"
               >
-                {AVAILABLE_WEBLLM_MODELS.map((m) => (
+                {SUPPORTED_MODELS.map((m) => (
                   <option key={m.id} value={m.id} className="bg-slate-900 text-white">
                     {m.name} ({m.size})
                   </option>
@@ -216,7 +268,7 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
               ) : isTranslating ? (
                 <>
                   <Languages className="w-3.5 h-3.5 animate-spin" />
-                  <span>Translating to Kannada...</span>
+                  <span>Translating with IndicTrans2...</span>
                 </>
               ) : (
                 <>
@@ -241,7 +293,7 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
             </div>
             <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
               <div
-                className="bg-linear-to-r from-indigo-500 to-emerald-400 h-1.5 rounded-full transition-all duration-300"
+                className="bg-gradient-to-r from-indigo-500 to-emerald-400 h-1.5 rounded-full transition-all duration-300"
                 style={{ width: `${Math.max(progressPercent, 5)}%` }}
               />
             </div>
@@ -285,6 +337,77 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
               <span className="text-slate-400 block mb-0.5">Incident Date</span>
               {getConfidenceBadge(confidenceScores.date)}
             </div>
+          </div>
+        )}
+
+        {/* Structured Summary Breakdown Card (Short Summary, Action, Key Points) */}
+        {structuredSummary && (
+          <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 text-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-indigo-600" />
+                <span className="font-bold text-slate-800 text-xs uppercase tracking-wider">
+                  Extracted Administrative Insights
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
+                  Confidence: {Math.round(structuredSummary.confidence_score * 100)}%
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowKeyDetails(!showKeyDetails)}
+                className="text-slate-500 hover:text-slate-700 text-xs flex items-center gap-1"
+              >
+                {showKeyDetails ? (
+                  <>Hide Details <ChevronUp className="w-3.5 h-3.5" /></>
+                ) : (
+                  <>Show Details <ChevronDown className="w-3.5 h-3.5" /></>
+                )}
+              </button>
+            </div>
+
+            {showKeyDetails && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                {/* Short Summary */}
+                <div className="bg-white p-3 rounded-lg border border-indigo-100/80 shadow-2xs">
+                  <div className="font-semibold text-slate-700 flex items-center gap-1.5 mb-1 text-[11px]">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    Short Synopsis (ಮುಖ್ಯ ಸಾರಾಂಶ)
+                  </div>
+                  <p className="text-slate-600 leading-relaxed">
+                    {structuredSummary.short_summary}
+                  </p>
+                </div>
+
+                {/* Requested Action */}
+                <div className="bg-white p-3 rounded-lg border border-indigo-100/80 shadow-2xs">
+                  <div className="font-semibold text-slate-700 flex items-center gap-1.5 mb-1 text-[11px]">
+                    <Target className="w-3.5 h-3.5 text-amber-600" />
+                    Requested Action (ಕೋರಿದ ಪರಿಹಾರ)
+                  </div>
+                  <p className="text-slate-600 leading-relaxed">
+                    {structuredSummary.requested_action || 'No specific relief stated in petition.'}
+                  </p>
+                </div>
+
+                {/* Key Points */}
+                {structuredSummary.key_points && structuredSummary.key_points.length > 0 && (
+                  <div className="md:col-span-2 bg-white p-3 rounded-lg border border-indigo-100/80 shadow-2xs">
+                    <div className="font-semibold text-slate-700 flex items-center gap-1.5 mb-1 text-[11px]">
+                      <ListOrdered className="w-3.5 h-3.5 text-emerald-600" />
+                      Key Factual Points (ಮುಖ್ಯ ಅಂಶಗಳು)
+                    </div>
+                    <ul className="list-disc list-inside space-y-1 text-slate-600">
+                      {structuredSummary.key_points.map((pt, idx) => (
+                        <li key={idx} className="leading-relaxed">
+                          {pt}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -370,6 +493,7 @@ export const WebLlmSummarizerSection: React.FC<WebLlmSummarizerSectionProps> = (
               onClick={() => {
                 onEnglishSummaryChange('');
                 onKannadaSummaryChange('');
+                setStructuredSummary(null);
               }}
               className="text-slate-400 hover:text-rose-500 text-[11px] transition-colors"
             >

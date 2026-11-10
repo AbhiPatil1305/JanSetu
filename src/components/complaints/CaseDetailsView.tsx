@@ -8,8 +8,11 @@ import { followupsService } from '../../services/api/followups.service';
 import { escalationsService } from '../../services/api/escalations.service';
 import { officersService } from '../../services/api/officers.service';
 import { departmentsService } from '../../services/api/departments.service';
+import { documentsService } from '../../services/api/documents.service';
+import { translationsService } from '../../services/api/translations.service';
 import { Complaint, ComplaintDocument, ProgressUpdate, ResolutionSubmission } from '../../types/complaint';
 import { OcrPanel } from './OcrPanel';
+import { PdfDocumentViewer } from './PdfDocumentViewer';
 import { User } from '../../types/auth';
 import { PoliceStation } from '../../types/department';
 import { StatusBadge, PriorityBadge, FlagBadge } from '../common/Badge';
@@ -39,6 +42,12 @@ import {
   ArrowRight,
   ExternalLink,
   ZoomIn,
+  Download,
+  Eye,
+  Languages,
+  RotateCw,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export const CaseDetailsView: React.FC = () => {
@@ -62,6 +71,137 @@ export const CaseDetailsView: React.FC = () => {
   const [isResolutionModalOpen, setIsResolutionModalOpen] = useState(false);
   const [isPreviewDocModalOpen, setIsPreviewDocModalOpen] = useState(false);
   const [selectedDocForInspection, setSelectedDocForInspection] = useState<ComplaintDocument | null>(null);
+
+  // Document Viewer Modal State
+  const [viewingDoc, setViewingDoc] = useState<ComplaintDocument | null>(null);
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
+  const [isRegeneratingTranslation, setIsRegeneratingTranslation] = useState(false);
+
+  const handleOpenDocViewer = (doc: ComplaintDocument) => {
+    setViewingDoc(doc);
+  };
+
+  const handleDownloadDoc = async (doc: ComplaintDocument) => {
+    setDownloadingDocId(doc.id);
+    try {
+      await documentsService.downloadDocument(doc.id, doc.name);
+      showToast('Document Downloaded', `Successfully downloaded ${doc.name}`, 'success');
+    } catch (err: any) {
+      showToast('Download Failed', err?.message || 'Could not download document file.', 'error');
+    } finally {
+      setDownloadingDocId(null);
+    }
+  };
+
+  const handleRegenerateFullTranslation = async (targetDoc?: ComplaintDocument) => {
+    if (!complaint) return;
+    const origDoc =
+      complaint.documents.find((d) => d.isOriginal || d.documentType !== 'TRANSLATION') ||
+      complaint.documents[0];
+
+    setIsRegeneratingTranslation(true);
+    try {
+      // Find source text from original document reviewed/extracted text, or complaint details
+      const sourceText = (
+        origDoc?.reviewedText ||
+        origDoc?.extractedText ||
+        complaint.ocrAiExtraction?.reviewedText ||
+        complaint.ocrAiExtraction?.rawText ||
+        complaint.details?.description ||
+        ''
+      ).trim();
+
+      if (!sourceText) {
+        showToast('Error', 'No source petition text available to translate.', 'error');
+        return;
+      }
+
+      const isSourceKannada =
+        /[\u0C80-\u0CFF]/.test(sourceText) ||
+        (complaint.details?.language || '').toLowerCase().includes('kan');
+      const sourceLang = isSourceKannada ? 'kn' : 'en';
+      const targetLang = isSourceKannada ? 'en' : 'kn';
+      const transSourceName = isSourceKannada ? 'Kannada' : 'English';
+      const transTargetName = isSourceKannada ? 'English' : 'Kannada';
+
+      showToast('Translating...', `Translating full petition from ${transSourceName} to ${transTargetName} via IndicTrans2...`, 'info');
+
+      const transRes = await translationsService.translateText(
+        sourceText,
+        sourceLang as 'kn' | 'en',
+        targetLang as 'en' | 'kn'
+      );
+
+      const finalTranslatedBody = transRes.translated_text?.trim();
+      if (!finalTranslatedBody) {
+        throw new Error('Translation returned empty text from engine.');
+      }
+
+      const summarySection = (
+        isSourceKannada ? complaint.ocrAiExtraction?.englishSummary : complaint.ocrAiExtraction?.kannadaSummary
+      )?.trim();
+
+      const docSections = [
+        `================================================================================`,
+        `JANSETU - OFFICIAL TRANSLATED PETITION DOCUMENT`,
+        `Government of Karnataka • District Grievance Redressal System`,
+        `--------------------------------------------------------------------------------`,
+        `Grievance Case ID : ${complaint.id}`,
+        `Petition Title    : ${complaint.details?.title || 'Citizen Petition'}`,
+        `Original Language : ${transSourceName}`,
+        `Translated To     : ${transTargetName}`,
+        `Date Generated    : ${new Date().toISOString()}`,
+        `Status            : Official Case Translation (Verified IndicTrans2 Neural Engine)`,
+        `================================================================================`,
+        ``,
+      ];
+
+      if (summarySection && summarySection !== finalTranslatedBody) {
+        docSections.push(
+          `EXECUTIVE SUMMARY:`,
+          `--------------------------------------------------------------------------------`,
+          summarySection,
+          `--------------------------------------------------------------------------------`,
+          ``
+        );
+      }
+
+      docSections.push(
+        `COMPLETE TRANSLATED PETITION CONTENT:`,
+        `--------------------------------------------------------------------------------`,
+        finalTranslatedBody,
+        `--------------------------------------------------------------------------------`,
+        ``,
+        `VERIFICATION & LEGAL NOTICE:`,
+        `This document represents the complete neural translation of the citizen petition`,
+        `processed using AI4Bharat IndicTrans2. The original document remains archived`,
+        `and immutable in the district repository.`
+      );
+
+      const transDocumentText = docSections.join('\n');
+      const transBlob = new Blob([transDocumentText], { type: 'text/plain;charset=utf-8' });
+      const transFilename = `translated_petition_${complaint.id.substring(0, 8)}.txt`;
+
+      await complaintsService.uploadComplaintDocument(
+        complaint.id,
+        transBlob,
+        transFilename,
+        'TRANSLATION',
+        targetLang,
+        `Translated Petition (${transTargetName}) - ${complaint.details?.title || 'Petition'}`,
+        origDoc?.id,
+        finalTranslatedBody,
+        finalTranslatedBody
+      );
+
+      showToast('Translation Updated', 'Complete translated petition document generated and saved.', 'success');
+      await loadCase();
+    } catch (err: any) {
+      showToast('Translation Failed', err?.message || 'Could not re-translate document.', 'error');
+    } finally {
+      setIsRegeneratingTranslation(false);
+    }
+  };
 
   // Form states for modals
   const [commType, setCommType] = useState<'PHONE_CALL' | 'EMAIL' | 'LETTER'>('PHONE_CALL');
@@ -582,54 +722,135 @@ export const CaseDetailsView: React.FC = () => {
       {/* TAB CONTENT: Documents */}
       {activeTab === 'documents' && (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-bold text-slate-900">
-              Petition Documents & Evidence Records ({complaint.documents.length})
-            </CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <div>
+              <CardTitle className="text-sm font-bold text-slate-900">
+                Petition Documents & Verified Translations ({complaint.documents.length})
+              </CardTitle>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Original citizen petition and official translated document stored side-by-side for district administrative review.
+              </p>
+            </div>
+            <Button
+              variant="gold"
+              size="sm"
+              isLoading={isRegeneratingTranslation}
+              leftIcon={<RotateCw className="w-3.5 h-3.5" />}
+              onClick={() => handleRegenerateFullTranslation()}
+              title="Re-translate entire petition content using IndicTrans2"
+            >
+              Translate / Refresh Full Document
+            </Button>
           </CardHeader>
           <CardContent className="p-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {complaint.documents.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:shadow-sm transition flex items-start justify-between gap-3"
-                >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className="p-2.5 rounded-lg bg-amber-100 text-amber-800 flex-shrink-0">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="text-xs font-bold text-slate-900 truncate">{doc.name}</h4>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        {(doc.size / 1024).toFixed(1)} KB &bull; Uploaded {doc.uploadedAt}
-                      </p>
-                      {doc.isOriginal && (
-                        <span className="inline-block mt-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
-                          Original Petition Record
-                        </span>
-                      )}
-                    </div>
-                  </div>
+            {complaint.documents.length === 0 ? (
+              <div className="text-center py-12 text-slate-500 text-sm">
+                No documents found for this case.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {complaint.documents.map((doc) => {
+                  const isTranslation = doc.documentType === 'TRANSLATION' || !doc.isOriginal;
+                  return (
+                    <div
+                      key={doc.id}
+                      className={`p-4 rounded-xl border transition flex flex-col justify-between gap-3 ${
+                        isTranslation
+                          ? 'border-indigo-200 bg-indigo-50/40 hover:bg-white hover:shadow-md hover:border-indigo-300'
+                          : 'border-slate-200 bg-slate-50/50 hover:bg-white hover:shadow-md hover:border-amber-300'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div
+                          className={`p-2.5 rounded-lg flex-shrink-0 ${
+                            isTranslation
+                              ? 'bg-indigo-100 text-indigo-700'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {isTranslation ? (
+                            <Languages className="w-5 h-5" />
+                          ) : (
+                            <FileText className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-bold text-slate-900 truncate" title={doc.originalFilename || doc.name}>
+                            {doc.originalFilename || doc.name}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {(doc.size / 1024).toFixed(1)} KB &bull; Uploaded {doc.uploadedAt}
+                          </p>
+                          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                            {isTranslation ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full border border-indigo-200">
+                                <Languages className="w-3 h-3" />
+                                Translated Document ({doc.language?.toUpperCase() || 'EN'})
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                Original Petition Document ({doc.language?.toUpperCase() || 'KN'})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
 
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    leftIcon={<ZoomIn className="w-3.5 h-3.5" />}
-                    onClick={() => {
-                      setSelectedDocForInspection(doc);
-                      setIsPreviewDocModalOpen(true);
-                    }}
-                  >
-                    Inspect & OCR
-                  </Button>
-                </div>
-              ))}
-            </div>
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100/80">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          leftIcon={<Eye className="w-3.5 h-3.5 text-slate-600" />}
+                          onClick={() => handleOpenDocViewer(doc)}
+                        >
+                          View Document
+                        </Button>
+                        {isTranslation && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            isLoading={isRegeneratingTranslation}
+                            leftIcon={<RotateCw className="w-3.5 h-3.5 text-indigo-600" />}
+                            onClick={() => handleRegenerateFullTranslation(doc)}
+                            title="Re-translate complete petition content using IndicTrans2"
+                          >
+                            Re-Translate Full Doc
+                          </Button>
+                        )}
+                        {!isTranslation && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            leftIcon={<ZoomIn className="w-3.5 h-3.5 text-amber-600" />}
+                            onClick={() => {
+                              setSelectedDocForInspection(doc);
+                              setIsPreviewDocModalOpen(true);
+                            }}
+                          >
+                            Inspect & OCR
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          isLoading={downloadingDocId === doc.id}
+                          leftIcon={<Download className="w-3.5 h-3.5 text-blue-600" />}
+                          onClick={() => handleDownloadDoc(doc)}
+                        >
+                          Download
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="mt-6 p-4 rounded-lg bg-slate-100 border border-slate-200 text-xs text-slate-600 flex items-start gap-3">
               <Shield className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
               <span>
-                Original complaint petitions and supporting evidentiary attachments are immutably preserved in the district case repository. No modifications or deletions are permitted under government records compliance standards.
+                Original complaint petitions and approved translations are independently stored with SHA-256 integrity checks in the district case repository. Both records are immutably preserved for audit and administrative decision-making.
               </span>
             </div>
           </CardContent>
@@ -1253,7 +1474,10 @@ export const CaseDetailsView: React.FC = () => {
       {/* Document Inspection Preview Modal */}
       <Modal
         isOpen={isPreviewDocModalOpen}
-        onClose={() => setIsPreviewDocModalOpen(false)}
+        onClose={() => {
+          setIsPreviewDocModalOpen(false);
+          loadCase();
+        }}
         title={`Petition Document & OCR Inspection: ${selectedDocForInspection?.name || 'Document'}`}
         description={`Classified Archive: ${complaint.id}`}
         maxWidth="4xl"
@@ -1265,14 +1489,33 @@ export const CaseDetailsView: React.FC = () => {
             file={selectedDocForInspection ? { name: selectedDocForInspection.name, size: selectedDocForInspection.size, url: selectedDocForInspection.url } : null}
             rawText={complaint.ocrAiExtraction?.rawText}
             reviewedText={complaint.ocrAiExtraction?.reviewedText}
+            onTranslatedTextChange={() => {
+              loadCase();
+            }}
+            onSaveReviewedText={() => {
+              loadCase();
+            }}
           />
           <div className="flex justify-end pt-2">
-            <Button variant="outline" size="sm" onClick={() => setIsPreviewDocModalOpen(false)}>
+            <Button variant="outline" size="sm" onClick={() => {
+              setIsPreviewDocModalOpen(false);
+              loadCase();
+            }}>
               Close Document
             </Button>
           </div>
         </div>
       </Modal>
+
+      {/* Professional Full-Featured PDF & Document Viewer */}
+      <PdfDocumentViewer
+        isOpen={Boolean(viewingDoc)}
+        onClose={() => setViewingDoc(null)}
+        document={viewingDoc}
+        grievanceId={complaint.id}
+        grievanceNumber={complaint.id}
+        grievanceTitle={complaint.details?.title}
+      />
     </div>
   );
 };

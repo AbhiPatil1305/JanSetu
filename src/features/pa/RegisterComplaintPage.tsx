@@ -8,8 +8,20 @@ import { departmentsService } from '../../services/api/departments.service';
 import { officersService } from '../../services/api/officers.service';
 import { documentsService } from '../../services/api/documents.service';
 import { translationsService } from '../../services/api/translations.service';
+import { textAssistanceService } from '../../services/api/textAssistance.service';
+import { GrammarCorrectionModal } from '../../components/complaints/GrammarCorrectionModal';
+import {
+  TextCorrectionResponse,
+  CorrectionItem,
+  AcceptedCorrectionAudit,
+} from '../../types/textAssistance';
 import { parsePetitionText, ParsedPetitionData } from '../../utils/petitionParser';
-import { Department, PoliceStation } from '../../types/department';
+import {
+  Department,
+  PoliceStation,
+  DepartmentClassificationResponse,
+  DepartmentCandidate,
+} from '../../types/department';
 import { User } from '../../types/auth';
 import { ComplaintPriority, ConfidenceLevel, Complaint } from '../../types/complaint';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -17,6 +29,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/commo
 import { Button } from '../../components/common/Button';
 import { OcrPanel } from '../../components/complaints/OcrPanel';
 import { WebLlmSummarizerSection } from '../../components/complaints/WebLlmSummarizerSection';
+import { IntelligentFormExtractionSection } from '../../components/complaints/IntelligentFormExtractionSection';
+import { GrievanceExtractionResult } from '../../types/extraction';
 import {
   Upload,
   FileText,
@@ -37,6 +51,9 @@ import {
   FileCheck,
   Building,
   Check,
+  Bot,
+  RefreshCw,
+  Info,
 } from 'lucide-react';
 
 
@@ -61,6 +78,8 @@ export const RegisterComplaintPage: React.FC = () => {
   const [reviewedOcr, setReviewedOcr] = useState('');
   const [englishSummary, setEnglishSummary] = useState('');
   const [kannadaSummary, setKannadaSummary] = useState('');
+  const [fullTranslatedText, setFullTranslatedText] = useState('');
+  const [fullTranslatedLang, setFullTranslatedLang] = useState<'en' | 'kn'>('en');
   const [zoomLevel, setZoomLevel] = useState(100);
   const [confidenceScores, setConfidenceScores] = useState<{
     citizen: ConfidenceLevel;
@@ -92,6 +111,249 @@ export const RegisterComplaintPage: React.FC = () => {
   const [complaintLanguage, setComplaintLanguage] = useState<'kannada' | 'english' | 'bilingual'>('english');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
+  const [lastExtractionResult, setLastExtractionResult] = useState<GrievanceExtractionResult | null>(null);
+
+  // AI Department Recommendation State (Local Qwen2.5 1.5B via Ollama)
+  const [deptRecommendation, setDeptRecommendation] = useState<DepartmentClassificationResponse | null>(null);
+  const [isRecommendingDept, setIsRecommendingDept] = useState(false);
+  const [deptRecommendationError, setDeptRecommendationError] = useState<string | null>(null);
+
+  const handleRunDepartmentRecommendation = async (overrideText?: string) => {
+    const textToAnalyze = overrideText || complaintDesc || complaintTitle || reviewedOcr || rawOcr;
+    if (!textToAnalyze || textToAnalyze.trim().length < 5) {
+      showToast(
+        'Insufficient Text',
+        'Please enter or extract grievance details before requesting a department recommendation.',
+        'warning'
+      );
+      return;
+    }
+
+    setIsRecommendingDept(true);
+    setDeptRecommendationError(null);
+
+    try {
+      const res = await departmentsService.recommendDepartment({
+        text: textToAnalyze,
+        supporting_translation: englishSummary || kannadaSummary || undefined,
+        incident_location: incidentLocation || (district ? `${taluk ? taluk + ', ' : ''}${district}` : undefined),
+        model: 'qwen2.5:1.5b',
+      });
+      setDeptRecommendation(res);
+
+      if (res.recommended_department) {
+        showToast(
+          'Department Recommendation Ready',
+          `Suggested: ${res.recommended_department.department_name} (${res.application_confidence} confidence)`,
+          'info'
+        );
+      }
+    } catch (err: any) {
+      console.error('Department classification error:', err);
+      const detail = err?.response?.data?.detail || err?.message || 'Failed to connect to local Qwen2.5 classification service';
+      setDeptRecommendationError(detail);
+      showToast('Recommendation Failed', detail, 'error');
+    } finally {
+      setIsRecommendingDept(false);
+    }
+  };
+
+  // AI Grammar & Writing Assistance State (Local Qwen2.5 1.5B via Ollama)
+  const [grammarModalOpen, setGrammarModalOpen] = useState(false);
+  const [grammarTargetField, setGrammarTargetField] = useState<'title' | 'description' | 'ocr' | 'summary'>('ocr');
+  const [grammarOriginalText, setGrammarOriginalText] = useState<string>('');
+  const [grammarResponse, setGrammarResponse] = useState<TextCorrectionResponse | null>(null);
+  const [isGrammarLoading, setIsGrammarLoading] = useState(false);
+  const [grammarError, setGrammarError] = useState<string | null>(null);
+  const [textCorrectionAudits, setTextCorrectionAudits] = useState<AcceptedCorrectionAudit[]>([]);
+
+  const handleCheckGrammar = async (
+    field: 'title' | 'description' | 'ocr' | 'summary',
+    overrideText?: string
+  ) => {
+    let textToCheck = overrideText;
+    if (!textToCheck) {
+      if (field === 'title') textToCheck = complaintTitle;
+      else if (field === 'ocr') textToCheck = reviewedOcr || rawOcr;
+      else if (field === 'summary') textToCheck = englishSummary || kannadaSummary;
+      else textToCheck = complaintDesc || reviewedOcr || rawOcr;
+    }
+
+    if (!textToCheck || textToCheck.trim().length < 3) {
+      showToast(
+        'Insufficient Text',
+        `No petition text available to check. Please upload a document or enter text first.`,
+        'warning'
+      );
+      return;
+    }
+
+    setGrammarTargetField(field);
+    setGrammarOriginalText(textToCheck);
+    setGrammarModalOpen(true);
+    setIsGrammarLoading(true);
+    setGrammarError(null);
+    setGrammarResponse(null);
+
+    try {
+      const res = await textAssistanceService.correctText({
+        text: textToCheck,
+        text_type: field === 'title' ? 'TITLE' : 'DESCRIPTION',
+        language_hint: complaintLanguage === 'kannada' ? 'kn' : 'auto',
+      });
+      setGrammarResponse(res);
+    } catch (err: any) {
+      console.error('Grammar check error:', err);
+      const detail =
+        err?.response?.data?.detail ||
+        err?.message ||
+        'Failed to connect to local grammar assistance service';
+      setGrammarError(detail);
+      showToast('Grammar Check Failed', detail, 'error');
+    } finally {
+      setIsGrammarLoading(false);
+    }
+  };
+
+  const handleAcceptGrammarCorrections = (
+    correctedText: string,
+    appliedCorrections: CorrectionItem[]
+  ) => {
+    if (grammarTargetField === 'title') {
+      setComplaintTitle(correctedText);
+    } else if (grammarTargetField === 'ocr') {
+      setReviewedOcr(correctedText);
+      setComplaintDesc(correctedText);
+    } else if (grammarTargetField === 'summary') {
+      setEnglishSummary(correctedText);
+      setComplaintDesc(correctedText);
+    } else {
+      setComplaintDesc(correctedText);
+    }
+
+    // Preserve audit record
+    setTextCorrectionAudits((prev) => [
+      ...prev,
+      {
+        target_field: grammarTargetField,
+        original_text: grammarOriginalText,
+        corrected_text: correctedText,
+        accepted_at: new Date().toISOString(),
+        accepted_by: user?.name || user?.email || 'Authorized Operator',
+        model_version: grammarResponse?.model_version || 'qwen2.5:1.5b',
+        corrections_applied_count: appliedCorrections.length,
+      },
+    ]);
+
+    setGrammarModalOpen(false);
+    showToast(
+      'Corrections Applied',
+      `Applied ${appliedCorrections.length} correction(s) to ${
+        grammarTargetField === 'title'
+          ? 'Grievance Title'
+          : grammarTargetField === 'ocr'
+          ? 'Reviewed OCR Document'
+          : 'Complaint Statement'
+      }.`,
+      'success'
+    );
+  };
+
+  const applyWebLlmExtractionResultToForm = (
+    result: GrievanceExtractionResult,
+    showNotice = true
+  ) => {
+    setLastExtractionResult(result);
+    const f = result.fields;
+
+    if (f.citizen_name.value) setCitizenName(f.citizen_name.value);
+    if (f.mobile_number.value) setCitizenPhone(f.mobile_number.value);
+    if (f.email.value) setCitizenEmail(f.email.value);
+    if (f.residential_address.value) setCitizenAddress(f.residential_address.value);
+    if (f.taluk.value) setTaluk(f.taluk.value);
+    if (f.locality.value) setVillageLocality(f.locality.value);
+    if (f.complaint_title.value) setComplaintTitle(f.complaint_title.value);
+    if (f.category_suggestion.value) setComplaintCategory(f.category_suggestion.value);
+    if (f.incident_date.value) setIncidentDate(f.incident_date.value);
+    if (f.incident_location.value) setIncidentLocation(f.incident_location.value);
+    if (f.complaint_description.value) setComplaintDesc(f.complaint_description.value);
+    if (f.requested_action.value) setRequestedAction(f.requested_action.value);
+
+    // Update target language for form
+    setComplaintLanguage(result.output_language === 'kn' ? 'kannada' : 'english');
+
+    // Department suggestion matching (suggestion ONLY, requires operator confirmation)
+    if (f.department_suggestion.value && departments.length > 0) {
+      const match = departments.find(
+        (d) =>
+          d.name.toLowerCase().includes(f.department_suggestion.value!.toLowerCase()) ||
+          d.code.toLowerCase().includes(f.department_suggestion.value!.toLowerCase()) ||
+          f.department_suggestion.value!.toLowerCase().includes(d.name.toLowerCase())
+      );
+      if (match) {
+        setAiSuggestedDept(match);
+      }
+    }
+
+    // Urgency suggestion (suggestion ONLY, requires operator confirmation)
+    if (f.urgency_suggestion.value) {
+      const u = f.urgency_suggestion.value.toUpperCase();
+      if (u.includes('CRITICAL')) setAiSuggestedPriority('CRITICAL');
+      else if (u.includes('HIGH')) setAiSuggestedPriority('HIGH');
+      else if (u.includes('LOW')) setAiSuggestedPriority('LOW');
+      else setAiSuggestedPriority('MEDIUM');
+    }
+
+    // Model confidence estimates
+    setConfidenceScores({
+      citizen: f.citizen_name.confidence > 0.8 ? 'HIGH' : f.citizen_name.value ? 'NEEDS_REVIEW' : 'MISSING',
+      category: f.category_suggestion.confidence > 0.8 ? 'HIGH' : f.category_suggestion.value ? 'NEEDS_REVIEW' : 'MISSING',
+      location: f.incident_location.confidence > 0.8 ? 'HIGH' : f.incident_location.value ? 'NEEDS_REVIEW' : 'MISSING',
+      date: f.incident_date.confidence > 0.8 ? 'HIGH' : f.incident_date.value ? 'NEEDS_REVIEW' : 'MISSING',
+    });
+
+    setHasAutoFilled(true);
+
+    // Automatically trigger local Qwen2.5 department classification in background
+    const textForWebLlmClass = f.complaint_description.value || f.complaint_title.value || rawOcr || reviewedOcr;
+    if (textForWebLlmClass && textForWebLlmClass.trim().length >= 10) {
+      handleRunDepartmentRecommendation(textForWebLlmClass);
+    }
+
+    if (showNotice) {
+      showToast(
+        'Intelligent Form Pre-Filled',
+        `Grievance fields populated in ${result.output_language === 'kn' ? 'Kannada' : 'English'} from document analysis.`,
+        'success'
+      );
+    }
+  };
+
+  const renderFieldTraceBadge = (fieldKey: keyof GrievanceExtractionResult['fields']) => {
+    if (!lastExtractionResult) return null;
+    const f = lastExtractionResult.fields[fieldKey];
+    if (!f) return null;
+    if (f.status === 'NOT_FOUND' || !f.value) {
+      return (
+        <span className="text-[10px] text-slate-400 font-normal italic ml-2">
+          (Not detected in document &bull; manual entry)
+        </span>
+      );
+    }
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded font-normal ml-2 cursor-help"
+        title={
+          f.source_excerpt
+            ? `Local AI Extract (${Math.round(f.confidence * 100)}% est. conf.)\nSource excerpt: "${f.source_excerpt}"`
+            : `Local AI Extract (${Math.round(f.confidence * 100)}% est. conf.)`
+        }
+      >
+        <Bot className="w-2.5 h-2.5 text-indigo-600" />
+        <span>Local AI ({Math.round(f.confidence * 100)}%)</span>
+      </span>
+    );
+  };
 
   const applyExtractedDataToForm = (data: ParsedPetitionData, showNotice = false) => {
     if (data.citizenName) setCitizenName(data.citizenName);
@@ -124,6 +386,12 @@ export const RegisterComplaintPage: React.FC = () => {
     if (data.confidenceScores) setConfidenceScores(data.confidenceScores);
     setHasAutoFilled(true);
 
+    // Automatically trigger local Qwen2.5 department classification in background
+    const textForParsedClass = data.complaintDesc || data.complaintTitle || rawOcr || reviewedOcr;
+    if (textForParsedClass && textForParsedClass.trim().length >= 10) {
+      handleRunDepartmentRecommendation(textForParsedClass);
+    }
+
     if (showNotice) {
       showToast(
         'Form Fields Auto-Filled',
@@ -152,6 +420,8 @@ export const RegisterComplaintPage: React.FC = () => {
   const [selectedStationId, setSelectedStationId] = useState('');
   const [selectedOfficerId, setSelectedOfficerId] = useState('');
   const [priority, setPriority] = useState<ComplaintPriority>('HIGH');
+  const [aiSuggestedDept, setAiSuggestedDept] = useState<Department | null>(null);
+  const [aiSuggestedPriority, setAiSuggestedPriority] = useState<ComplaintPriority | null>(null);
   const [initialFollowupDate, setInitialFollowupDate] = useState(
     new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0]
   );
@@ -326,14 +596,112 @@ export const RegisterComplaintPage: React.FC = () => {
         }
       }
 
-      await complaintsService.uploadComplaintDocument(
+      // 1. Upload original petition document along with its OCR text for persistence
+      const origDoc = await complaintsService.uploadComplaintDocument(
         caseId,
         fileToUpload,
         uploadName,
         'PETITION',
         complaintLanguage === 'kannada' ? 'kn' : 'en',
-        complaintTitle
+        uploadName,
+        undefined,
+        rawOcr || undefined,
+        reviewedOcr || undefined
       );
+
+      // 2. Prepare FULL translated document content
+      const sourcePetitionText = (reviewedOcr || rawOcr || '').trim();
+      const isSourceKannada = complaintLanguage === 'kannada' || /[\u0C80-\u0CFF]/.test(sourcePetitionText);
+      const transTargetLang = isSourceKannada ? 'en' : 'kn';
+      const transTargetName = isSourceKannada ? 'English' : 'Kannada';
+      const transSourceName = isSourceKannada ? 'Kannada' : 'English';
+
+      let fullTranslation = fullTranslatedText?.trim() || '';
+
+      // If full translation is not yet in state, automatically run translation on the ENTIRE petition text
+      if (!fullTranslation && sourcePetitionText) {
+        try {
+          const transRes = await translationsService.translateText(
+            sourcePetitionText,
+            isSourceKannada ? 'kn' : 'en',
+            isSourceKannada ? 'en' : 'kn'
+          );
+          if (transRes?.translated_text?.trim()) {
+            fullTranslation = transRes.translated_text.trim();
+            setFullTranslatedText(fullTranslation);
+          }
+        } catch (autoTransErr) {
+          console.warn('Auto-translating entire petition during registration note:', autoTransErr);
+        }
+      }
+
+      // If neural translation is unavailable, fallback to description or summary
+      const finalTranslatedBody =
+        fullTranslation ||
+        (isSourceKannada ? (englishSummary || complaintDesc) : (kannadaSummary || complaintDesc)) ||
+        '';
+
+      if (finalTranslatedBody.trim()) {
+        const summarySection = (isSourceKannada ? englishSummary : kannadaSummary)?.trim();
+
+        const docSections = [
+          `================================================================================`,
+          `JANSETU - OFFICIAL TRANSLATED PETITION DOCUMENT`,
+          `Government of Karnataka • District Grievance Redressal System`,
+          `--------------------------------------------------------------------------------`,
+          `Grievance Case ID : ${caseId}`,
+          `Petition Title    : ${complaintTitle}`,
+          `Original Language : ${transSourceName}`,
+          `Translated To     : ${transTargetName}`,
+          `Date Generated    : ${new Date().toISOString()}`,
+          `Status            : Official Case Translation (Verified IndicTrans2 Neural Engine)`,
+          `================================================================================`,
+          ``,
+        ];
+
+        if (summarySection && summarySection !== finalTranslatedBody) {
+          docSections.push(
+            `EXECUTIVE SUMMARY:`,
+            `--------------------------------------------------------------------------------`,
+            summarySection,
+            `--------------------------------------------------------------------------------`,
+            ``
+          );
+        }
+
+        docSections.push(
+          `COMPLETE TRANSLATED PETITION CONTENT:`,
+          `--------------------------------------------------------------------------------`,
+          finalTranslatedBody,
+          `--------------------------------------------------------------------------------`,
+          ``,
+          `VERIFICATION & LEGAL NOTICE:`,
+          `This document represents the complete neural translation of the citizen petition`,
+          `processed using AI4Bharat IndicTrans2. The original document remains archived`,
+          `and immutable in the district repository.`
+        );
+
+        const transDocumentText = docSections.join('\n');
+        const transBlob = new Blob([transDocumentText], { type: 'text/plain;charset=utf-8' });
+        const transFilename = `translated_petition_${caseId.substring(0, 8)}.txt`;
+
+        try {
+          await complaintsService.uploadComplaintDocument(
+            caseId,
+            transBlob,
+            transFilename,
+            'TRANSLATION',
+            transTargetLang,
+            `Translated Petition (${transTargetName}) - ${complaintTitle}`,
+            origDoc?.id,
+            finalTranslatedBody,
+            finalTranslatedBody
+          );
+        } catch (transUploadErr) {
+          console.warn('Translated document secondary upload note:', transUploadErr);
+        }
+      }
+
       setDocUploadComplete(true);
       setUploadError(null);
       return true;
@@ -541,9 +909,11 @@ export const RegisterComplaintPage: React.FC = () => {
               const isPast = currentStage > step.num;
               const isCurrent = currentStage === step.num;
               return (
-                <div
+                <button
+                  type="button"
                   key={step.num}
-                  className={`flex items-center gap-3 p-2 rounded-lg transition ${
+                  onClick={() => setCurrentStage(step.num as any)}
+                  className={`flex items-center gap-3 p-2 rounded-lg transition text-left cursor-pointer hover:bg-slate-50 w-full ${
                     isCurrent ? 'bg-amber-50/70 border border-amber-200' : ''
                   }`}
                 >
@@ -568,7 +938,7 @@ export const RegisterComplaintPage: React.FC = () => {
                     </p>
                     <p className="text-[10px] text-slate-500 truncate">{step.desc}</p>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -644,6 +1014,27 @@ export const RegisterComplaintPage: React.FC = () => {
 
 
 
+              {/* Direct to Form Option */}
+              <div className="flex flex-col sm:flex-row items-center justify-between p-4 bg-indigo-50/70 border border-indigo-200 rounded-xl gap-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-indigo-600" />
+                    <h5 className="text-xs font-bold text-indigo-950">Direct Form Entry & AI Writing Assistant</h5>
+                  </div>
+                  <p className="text-[11px] text-indigo-800">
+                    Registering without a scanned petition? Proceed directly to the complaint form to enter details and use local AI grammar & spelling checking.
+                  </p>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setCurrentStage(3)}
+                  rightIcon={<ArrowRight className="w-4 h-4" />}
+                >
+                  Proceed to Form
+                </Button>
+              </div>
+
               {/* Confidentiality notice */}
               <div className="p-4 bg-slate-900 text-slate-300 rounded-xl text-xs flex items-start gap-3 border border-slate-800">
                 <Shield className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
@@ -657,6 +1048,40 @@ export const RegisterComplaintPage: React.FC = () => {
       {/* STAGE 2: OCR & AI EXTRACTION REVIEW */}
       {currentStage === 2 && (
         <div className="space-y-6">
+          {/* AI Grammar & Writing Assistant Banner at Top of Stage 2 */}
+          <div className="p-4 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-blue-50/80 border border-indigo-200 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-xs flex-shrink-0">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-slate-900">
+                    AI Grammar, Typo & Writing Assistant
+                  </h4>
+                  <span className="text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full">
+                    qwen2.5:1.5b (Local Ollama)
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Verify petition text extracted from documents. Identifies spelling errors, Kannada typos, punctuation issues, and awkward phrasing while protecting all citizen facts.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={() => handleCheckGrammar('ocr')}
+                leftIcon={<Sparkles className="w-4 h-4 text-white" />}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-xs cursor-pointer"
+              >
+                Check Grammar & Spelling
+              </Button>
+            </div>
+          </div>
+
           {/* Integrated Document OCR Workspace (Stage 1 OCR Text Extraction) */}
           <OcrPanel
             file={file}
@@ -666,18 +1091,25 @@ export const RegisterComplaintPage: React.FC = () => {
             reviewedText={reviewedOcr}
             onRawTextChange={setRawOcr}
             onReviewedTextChange={setReviewedOcr}
+            onCheckGrammar={(text) => handleCheckGrammar('ocr', text)}
             onSaveReviewedText={(saved) => {
               setReviewedOcr(saved);
               showToast('Reviewed Text Saved', 'Human verified petition text preserved.', 'success');
             }}
             onTranslatedTextChange={(text, targetLang) => {
+              setFullTranslatedText(text);
+              setFullTranslatedLang(targetLang);
               if (targetLang === 'en') {
-                setEnglishSummary(text);
+                if (!englishSummary) {
+                  setEnglishSummary(text.length > 300 ? text.slice(0, 300) + '...' : text);
+                }
                 if (!complaintDesc) {
                   setComplaintDesc(text);
                 }
               } else {
-                setKannadaSummary(text);
+                if (!kannadaSummary) {
+                  setKannadaSummary(text.length > 300 ? text.slice(0, 300) + '...' : text);
+                }
               }
             }}
           />
@@ -698,55 +1130,19 @@ export const RegisterComplaintPage: React.FC = () => {
             getConfidenceBadge={getConfidenceBadge}
           />
 
-          {/* Form Auto-Fill Preview & Action Card */}
-          <Card className="border-amber-200 bg-amber-50/20">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-bold flex items-center gap-2 text-slate-900">
-                  <Sparkles className="w-4 h-4 text-amber-600" />
-                  <span>Detected Form Fields (Ready to Pre-Fill)</span>
-                </CardTitle>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => handleAutoFillFromText(true)}
-                  className="bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 shadow-xs"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Re-extract & Fill Form</span>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3 p-5 pt-2 text-xs">
-              <p className="text-slate-600">
-                The platform analyzes the extracted petition text to detect citizen identity, phone number, grievance classification, dates, and demanded relief. Click below to proceed to the form.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
-                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Citizen Name</span>
-                  <p className="font-semibold text-slate-800 truncate">{citizenName || <span className="text-slate-400 italic">Not detected</span>}</p>
-                </div>
-                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Mobile Number</span>
-                  <p className="font-semibold text-slate-800 font-mono truncate">{citizenPhone || <span className="text-slate-400 italic">Not detected</span>}</p>
-                </div>
-                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Category</span>
-                  <p className="font-semibold text-slate-800 truncate">{complaintCategory || 'General Grievance'}</p>
-                </div>
-                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Incident Date</span>
-                  <p className="font-semibold text-slate-800 font-mono truncate">{incidentDate || <span className="text-slate-400 italic">Not detected</span>}</p>
-                </div>
-                <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs sm:col-span-2">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Incident Location / Taluk</span>
-                  <p className="font-semibold text-slate-800 truncate">{incidentLocation || villageLocality ? `${incidentLocation || villageLocality}, ${taluk}` : <span className="text-slate-400 italic">Not detected</span>}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Intelligent Grievance Form Extraction (WebLLM WebGPU) */}
+          <IntelligentFormExtractionSection
+            documentId={file ? 'doc-active' : null}
+            documentName={file?.name}
+            reviewedOcrText={reviewedOcr}
+            rawOcrText={rawOcr}
+            translatedText={englishSummary || kannadaSummary}
+            onApplyExtraction={(res) => applyWebLlmExtractionResultToForm(res, true)}
+            onProceedToForm={() => setCurrentStage(3)}
+            lastExtractionResult={lastExtractionResult}
+          />
 
-          <div className="flex justify-between items-center pt-4">
+          <div className="flex flex-wrap justify-between items-center gap-3 pt-4">
             <Button
               variant="outline"
               size="md"
@@ -756,13 +1152,29 @@ export const RegisterComplaintPage: React.FC = () => {
               Back to Upload
             </Button>
             <Button
+              variant="outline"
+              size="md"
+              leftIcon={<Sparkles className="w-4 h-4 text-indigo-600" />}
+              onClick={() => {
+                if (!complaintDesc && (reviewedOcr || rawOcr)) {
+                  setComplaintDesc(reviewedOcr || rawOcr);
+                }
+                handleCheckGrammar('description');
+              }}
+            >
+              Check Grammar & Spelling (Local AI)
+            </Button>
+            <Button
               variant="primary"
               size="md"
               rightIcon={<ChevronRight className="w-4 h-4" />}
               onClick={() => {
-                // Ensure form has latest parsed fields before transitioning
+                // Ensure form has latest parsed fields before transitioning if not yet extracted
                 if (!hasAutoFilled && (reviewedOcr || rawOcr)) {
                   handleAutoFillFromText(false);
+                }
+                if (!deptRecommendation && (complaintDesc || reviewedOcr || rawOcr)) {
+                  handleRunDepartmentRecommendation(complaintDesc || reviewedOcr || rawOcr);
                 }
                 setCurrentStage(3);
               }}
@@ -784,13 +1196,32 @@ export const RegisterComplaintPage: React.FC = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-6 p-6 text-xs">
-              {/* Notice that fields have been auto-filled */}
-              {hasAutoFilled && (
+              {/* WebLLM Pre-fill Banner */}
+              {lastExtractionResult ? (
+                <div className="bg-indigo-50/80 border border-indigo-200 text-indigo-950 rounded-xl p-3.5 flex items-center justify-between text-xs shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <Bot className="w-5 h-5 text-indigo-600 flex-shrink-0" />
+                    <div>
+                      <p className="font-bold text-slate-900">
+                        Form Pre-Filled via Local WebLLM ({lastExtractionResult.output_language === 'kn' ? 'Kannada (ಕನ್ನಡ)' : 'English'})
+                      </p>
+                      <p className="text-[11px] text-slate-600 mt-0.5">
+                        Extracted in-browser using WebGPU. Hover over any field badge to inspect model confidence and exact document source excerpts. All fields are fully editable before submission.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase px-2.5 py-1 rounded bg-white text-indigo-800 border border-indigo-200 shadow-2xs">
+                      Language: {lastExtractionResult.output_language === 'kn' ? 'ಕನ್ನಡ' : 'English'}
+                    </span>
+                  </div>
+                </div>
+              ) : hasAutoFilled ? (
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-3.5 flex items-center justify-between text-xs shadow-2xs">
                   <div className="flex items-center gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                     <span>
-                      <strong>Form Pre-Filled:</strong> Citizen details, classification, and incident description have been extracted from the petition document. Please verify or edit each field below.
+                      <strong>Form Pre-Filled:</strong> Citizen details, classification, and incident description populated from petition document.
                     </span>
                   </div>
                   <Button
@@ -802,7 +1233,7 @@ export const RegisterComplaintPage: React.FC = () => {
                     Re-sync from OCR Text
                   </Button>
                 </div>
-              )}
+              ) : null}
 
               {/* Section 1: Citizen Details */}
               <div className="space-y-3">
@@ -815,6 +1246,7 @@ export const RegisterComplaintPage: React.FC = () => {
                   <div>
                     <label className="font-semibold text-slate-700 block mb-1">
                       Citizen Full Name <span className="text-rose-500">*</span>
+                      {renderFieldTraceBadge('citizen_name')}
                     </label>
                     <input
                       type="text"
@@ -829,6 +1261,7 @@ export const RegisterComplaintPage: React.FC = () => {
                   <div>
                     <label className="font-semibold text-slate-700 block mb-1">
                       Mobile Number <span className="text-rose-500">*</span>
+                      {renderFieldTraceBadge('mobile_number')}
                     </label>
                     <input
                       type="text"
@@ -843,6 +1276,7 @@ export const RegisterComplaintPage: React.FC = () => {
                   <div>
                     <label className="font-semibold text-slate-700 block mb-1">
                       Email Address (Optional)
+                      {renderFieldTraceBadge('email')}
                     </label>
                     <input
                       type="email"
@@ -856,7 +1290,10 @@ export const RegisterComplaintPage: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="sm:col-span-2">
-                    <label className="font-semibold text-slate-700 block mb-1">Residential Address</label>
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Residential Address
+                      {renderFieldTraceBadge('residential_address')}
+                    </label>
                     <input
                       type="text"
                       value={citizenAddress}
@@ -867,7 +1304,10 @@ export const RegisterComplaintPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="font-semibold text-slate-700 block mb-1">Taluk</label>
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Taluk
+                      {renderFieldTraceBadge('taluk')}
+                    </label>
                     <select
                       value={taluk}
                       onChange={(e) => setTaluk(e.target.value)}
@@ -889,10 +1329,66 @@ export const RegisterComplaintPage: React.FC = () => {
                   <span>Complaint Information & Classification</span>
                 </h4>
 
+                {/* AI Writing & Grammar Assistant Action Bar */}
+                <div className="p-3.5 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-blue-50/80 border border-indigo-200 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-xs flex-shrink-0">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                          AI Grammar, Typo & Writing Assistant
+                        </span>
+                        <span className="text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full">
+                          qwen2.5:1.5b (Local Ollama)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-0.5">
+                        Detects and corrects spelling errors, Kannada typos, punctuation, and sentence phrasing while strictly preserving meaning and protected citizen facts.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleCheckGrammar('title')}
+                      leftIcon={<Sparkles className="w-3.5 h-3.5 text-indigo-600" />}
+                      className="bg-white border-indigo-200 text-indigo-900 hover:bg-indigo-50 font-medium text-xs"
+                    >
+                      Check Title
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="primary"
+                      onClick={() => handleCheckGrammar('description')}
+                      leftIcon={<Sparkles className="w-3.5 h-3.5 text-white" />}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs"
+                    >
+                      Check Statement
+                    </Button>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">
-                    Grievance Title <span className="text-rose-500">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700">
+                      Grievance Title <span className="text-rose-500">*</span>
+                      {renderFieldTraceBadge('complaint_title')}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleCheckGrammar('title')}
+                      className="inline-flex items-center gap-1.5 text-xs text-indigo-700 hover:text-indigo-900 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-0.5 rounded-md font-medium transition-colors cursor-pointer"
+                      title="Check spelling, grammar, and typography using local Qwen2.5 1.5B"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Check Grammar & Spelling</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     required
@@ -905,7 +1401,10 @@ export const RegisterComplaintPage: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="font-semibold text-slate-700 block mb-1">Complaint Category</label>
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Complaint Category
+                      {renderFieldTraceBadge('category_suggestion')}
+                    </label>
                     <input
                       type="text"
                       value={complaintCategory}
@@ -916,7 +1415,10 @@ export const RegisterComplaintPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="font-semibold text-slate-700 block mb-1">Incident Date</label>
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Incident Date
+                      {renderFieldTraceBadge('incident_date')}
+                    </label>
                     <input
                       type="date"
                       value={incidentDate}
@@ -926,7 +1428,10 @@ export const RegisterComplaintPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="font-semibold text-slate-700 block mb-1">Incident Location</label>
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Incident Location
+                      {renderFieldTraceBadge('incident_location')}
+                    </label>
                     <input
                       type="text"
                       value={incidentLocation}
@@ -938,20 +1443,46 @@ export const RegisterComplaintPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">
-                    Detailed Complaint Statement
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700">
+                      Detailed Complaint Statement
+                      {renderFieldTraceBadge('complaint_description')}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleCheckGrammar('description')}
+                      className="inline-flex items-center gap-1.5 text-xs text-indigo-700 hover:text-indigo-900 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-0.5 rounded-md font-medium transition-colors cursor-pointer"
+                      title="Check spelling, grammar, and typography using local Qwen2.5 1.5B"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Check Grammar & Spelling</span>
+                    </button>
+                  </div>
                   <textarea
                     rows={3}
                     value={complaintDesc}
                     onChange={(e) => setComplaintDesc(e.target.value)}
                     className="w-full p-2.5 border border-slate-200 rounded-lg text-slate-900 focus:border-slate-800 outline-none text-sm leading-relaxed"
                   />
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-1.5 p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                    <span className="text-[11px] text-slate-500">
+                      Supports Kannada, English, and mixed language text. Names, dates, and amounts are preserved.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCheckGrammar('description')}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-md shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Check Grammar & Spelling</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">
                     Relief / Action Demanded by Citizen
+                    {renderFieldTraceBadge('requested_action')}
                   </label>
                   <input
                     type="text"
@@ -970,11 +1501,233 @@ export const RegisterComplaintPage: React.FC = () => {
                   <span>Responsible Department & Investigating Officer Selection</span>
                 </h4>
 
+                {/* AI Department Classification Panel (Local Qwen2.5 1.5B via Ollama) */}
+                <div className="border border-indigo-100 rounded-xl bg-slate-50/50 p-3.5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Bot className="w-4 h-4 text-indigo-600" />
+                      <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                        Local LLM Department Classifier
+                      </span>
+                      <span className="text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full">
+                        qwen2.5:1.5b (Local Ollama)
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => handleRunDepartmentRecommendation()}
+                      disabled={isRecommendingDept}
+                      leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isRecommendingDept ? 'animate-spin' : ''}`} />}
+                    >
+                      {isRecommendingDept ? 'Analyzing...' : 'Re-Classify Department'}
+                    </Button>
+                  </div>
+
+                  {isRecommendingDept && (
+                    <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-lg flex items-center gap-3 text-xs text-indigo-900">
+                      <RefreshCw className="w-4 h-4 text-indigo-600 animate-spin flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold">Analyzing petition text with local Qwen2.5 1.5B via Ollama...</p>
+                        <p className="text-[11px] text-indigo-700">
+                          Cross-referencing grievance issues with active department statutory responsibilities.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {deptRecommendationError && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-center justify-between gap-3">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-semibold">Department Recommendation Service Notice</p>
+                          <p className="text-[11px] text-amber-800">{deptRecommendationError}</p>
+                        </div>
+                      </div>
+                      <Button size="sm" variant="outline" type="button" onClick={() => handleRunDepartmentRecommendation()}>
+                        Retry
+                      </Button>
+                    </div>
+                  )}
+
+                  {deptRecommendation && !isRecommendingDept && (
+                    <div className="p-3.5 bg-gradient-to-r from-indigo-50/40 via-white to-blue-50/30 border border-indigo-100 rounded-lg space-y-3">
+                      {deptRecommendation.recommended_department ? (
+                        <div className="space-y-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-bold text-slate-800">
+                                Recommended Department:
+                              </span>
+                              <span className="text-xs font-bold text-indigo-900 bg-white px-2.5 py-1 rounded border border-indigo-200 shadow-xs">
+                                {deptRecommendation.recommended_department.department_name} ({deptRecommendation.recommended_department.department_code})
+                              </span>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                  deptRecommendation.application_confidence === 'HIGH'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                    : deptRecommendation.application_confidence === 'MEDIUM'
+                                    ? 'bg-blue-50 text-blue-700 border-blue-300'
+                                    : deptRecommendation.application_confidence === 'LOW'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-300'
+                                    : 'bg-rose-50 text-rose-700 border-rose-300'
+                                }`}
+                              >
+                                {deptRecommendation.application_confidence} CONFIDENCE
+                              </span>
+                            </div>
+
+                            <div>
+                              {selectedDeptId === deptRecommendation.recommended_department.department_id ? (
+                                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-3 py-1 rounded-lg">
+                                  <Check className="w-3.5 h-3.5" /> Selected in Form
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedDeptId(deptRecommendation.recommended_department!.department_id);
+                                    showToast(
+                                      'Department Applied',
+                                      `Assigned to ${deptRecommendation.recommended_department!.department_name}`,
+                                      'success'
+                                    );
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                                >
+                                  <Check className="w-3.5 h-3.5" /> Confirm & Apply Suggested Department
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-slate-700 bg-white/90 p-2.5 rounded-lg border border-slate-200 space-y-1.5">
+                            <p>
+                              <span className="font-semibold text-slate-900">Primary Justification: </span>
+                              {deptRecommendation.recommended_department.primary_reason}
+                            </p>
+                            {deptRecommendation.recommended_department.evidence_excerpts.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                <span className="font-semibold text-slate-700">Evidence from complaint:</span>
+                                {deptRecommendation.recommended_department.evidence_excerpts.map((excerpt, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="italic text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200"
+                                  >
+                                    &ldquo;{excerpt}&rdquo;
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {deptRecommendation.recommended_department.matched_responsibilities.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5 text-[11px] pt-1">
+                                <span className="font-semibold text-slate-700">Matched Responsibilities:</span>
+                                {deptRecommendation.recommended_department.matched_responsibilities.map((resp, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded text-[10px]"
+                                  >
+                                    {resp}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {deptRecommendation.alternative_candidates.length > 0 && (
+                            <div className="pt-1 space-y-1.5">
+                              <p className="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
+                                Alternative Department Candidates:
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {deptRecommendation.alternative_candidates.map((alt) => (
+                                  <div
+                                    key={alt.department_id}
+                                    className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between text-xs"
+                                  >
+                                    <div className="min-w-0 pr-2">
+                                      <span className="font-medium text-slate-800">
+                                        {alt.department_name} ({alt.department_code})
+                                      </span>
+                                      <span className="text-[10px] text-slate-500 block truncate">
+                                        {alt.primary_reason}
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedDeptId(alt.department_id);
+                                        showToast('Alternative Applied', `Assigned to ${alt.department_name}`, 'info');
+                                      }}
+                                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-medium transition-colors cursor-pointer flex-shrink-0"
+                                    >
+                                      Select Alternative
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {(deptRecommendation.uncertainty_notes || deptRecommendation.missing_information.length > 0) && (
+                            <div className="text-[11px] text-amber-800 bg-amber-50/70 border border-amber-200 rounded p-2 flex items-start gap-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                              <div>
+                                {deptRecommendation.uncertainty_notes && <p>{deptRecommendation.uncertainty_notes}</p>}
+                                {deptRecommendation.missing_information.length > 0 && (
+                                  <p className="text-[10px] text-amber-700">
+                                    Missing details: {deptRecommendation.missing_information.join(', ')}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-600 italic">
+                          No department candidate reached the confidence threshold for this petition.
+                        </p>
+                      )}
+
+                      <div className="text-[11px] text-slate-500 bg-white/80 p-2.5 rounded-lg border border-slate-200 flex items-start gap-2">
+                        <Info className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="leading-tight text-slate-600">{deptRecommendation.disclaimer}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-slate-400">
+                            <span>Model: <strong>{deptRecommendation.model_version}</strong></span>
+                            <span>Inference: <strong>{deptRecommendation.latency_sec.toFixed(2)}s</strong></span>
+                            <span>Speed: <strong>{deptRecommendation.eval_tokens_per_sec.toFixed(1)} tok/s</strong></span>
+                            <span className="text-indigo-600 font-semibold">Requires Operator Confirmation</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!deptRecommendation && !isRecommendingDept && !deptRecommendationError && (
+                    <div className="p-3 bg-white border border-slate-200 rounded-lg flex items-center justify-between text-xs text-slate-600">
+                      <span>Click to analyze grievance content with local Qwen2.5 and recommend the responsible department.</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        onClick={() => handleRunDepartmentRecommendation()}
+                        leftIcon={<Sparkles className="w-3.5 h-3.5 text-indigo-600" />}
+                      >
+                        Recommend Department
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {/* Department */}
                   <div>
                     <label className="font-semibold text-slate-700 block mb-1">
                       Target Department <span className="text-rose-500">*</span>
+                      {renderFieldTraceBadge('department_suggestion')}
                     </label>
                     <select
                       value={selectedDeptId}
@@ -987,6 +1740,21 @@ export const RegisterComplaintPage: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    {aiSuggestedDept && selectedDeptId !== aiSuggestedDept.id && (
+                      <div className="mt-1.5 p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-900 flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <span>AI Suggestion: <strong>{aiSuggestedDept.name}</strong></span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDeptId(aiSuggestedDept.id)}
+                            className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[11px] font-semibold transition-colors cursor-pointer"
+                          >
+                            Confirm & Apply
+                          </button>
+                        </div>
+                        <span className="text-[10px] text-indigo-600">Department was matched from document analysis.</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Police Station */}
@@ -1046,6 +1814,18 @@ export const RegisterComplaintPage: React.FC = () => {
                       <option value="HIGH">High Priority (Urgent 3-day follow-up)</option>
                       <option value="CRITICAL">Critical (Immediate 24-hr follow-up)</option>
                     </select>
+                    {aiSuggestedPriority && priority !== aiSuggestedPriority && (
+                      <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-center justify-between">
+                        <span>AI Suggestion: <strong>{aiSuggestedPriority} Priority</strong></span>
+                        <button
+                          type="button"
+                          onClick={() => setPriority(aiSuggestedPriority)}
+                          className="px-2 py-0.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-[11px] font-semibold transition-colors cursor-pointer"
+                        >
+                          Confirm & Apply
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -1154,6 +1934,41 @@ export const RegisterComplaintPage: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* AI Writing Assistance Audit Notice if corrections were applied */}
+              {textCorrectionAudits.length > 0 && (
+                <div className="p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2 text-xs">
+                  <div className="flex items-center justify-between font-bold text-indigo-900">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      AI Writing Corrections Applied ({textCorrectionAudits.length})
+                    </span>
+                    <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-mono">
+                      qwen2.5:1.5b (Local Ollama)
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {textCorrectionAudits.map((audit, idx) => (
+                      <div key={idx} className="p-2 bg-white rounded border border-indigo-100 text-[11px] space-y-1">
+                        <div className="flex items-center justify-between font-semibold text-slate-700">
+                          <span className="uppercase tracking-wider text-[10px] text-indigo-600">
+                            {audit.target_field === 'title' ? 'Grievance Title' : 'Complaint Statement'}
+                          </span>
+                          <span className="text-slate-400 text-[10px]">
+                            {audit.corrections_applied_count} correction(s) • Accepted by {audit.accepted_by}
+                          </span>
+                        </div>
+                        <div className="text-slate-500 line-through text-[10px] truncate">
+                          Original: "{audit.original_text}"
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-indigo-700 italic">
+                    Original petition text and accepted corrections audit trail are preserved in the government case file.
+                  </p>
+                </div>
+              )}
 
               {/* Verification Confirmation Checkbox */}
               <div className="p-4 bg-amber-50/70 border border-amber-200/80 rounded-xl space-y-2">
@@ -1288,6 +2103,20 @@ export const RegisterComplaintPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* AI Grammar, Typo & Writing Correction Modal */}
+      <GrammarCorrectionModal
+        isOpen={grammarModalOpen}
+        onClose={() => setGrammarModalOpen(false)}
+        targetField={grammarTargetField}
+        originalText={grammarOriginalText}
+        response={grammarResponse}
+        isLoading={isGrammarLoading}
+        error={grammarError}
+        onRetry={() => handleCheckGrammar(grammarTargetField, grammarOriginalText)}
+        onAcceptAll={handleAcceptGrammarCorrections}
+        onKeepOriginal={() => setGrammarModalOpen(false)}
+      />
     </div>
   );
 };

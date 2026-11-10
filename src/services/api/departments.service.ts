@@ -1,4 +1,10 @@
-import { Department, PoliceStation } from '../../types/department';
+import {
+  Department,
+  PoliceStation,
+  DepartmentCandidate,
+  DepartmentClassificationRequest,
+  DepartmentClassificationResponse,
+} from '../../types/department';
 import { mockStorage } from '../mock/mockStorage';
 import { apiClient, delay, ApiError, USE_MOCK_API, isUuid } from './client';
 
@@ -216,6 +222,41 @@ class DepartmentsService {
       activeCases: updates.activeCases || 0,
       status: res.is_active ? 'active' : 'inactive',
     };
+  }
+
+  async recommendDepartment(
+    payload: DepartmentClassificationRequest
+  ): Promise<DepartmentClassificationResponse> {
+    if (USE_MOCK_API) {
+      await delay(200);
+      return {
+        main_issue: 'Public nuisance and safety',
+        secondary_issues: [],
+        jurisdiction_clues: ['Bengaluru Urban'],
+        recommended_department: {
+          department_id: 'dept-1',
+          department_code: 'POL',
+          department_name: 'Home & Police Department',
+          confidence_score: 0.95,
+          rank: 1,
+          primary_reason: 'Matches law enforcement and safety duties.',
+          matched_responsibilities: ['Public Safety', 'Noise Pollution'],
+          evidence_excerpts: ['loudspeakers playing commercial sound'],
+          jurisdiction_match: true,
+        },
+        alternative_candidates: [],
+        application_confidence: 'HIGH',
+        uncertainty_notes: null,
+        missing_information: [],
+        disclaimer: 'The LLM is an assistant for administrative classification, not an authority. Human review required.',
+        requires_human_confirmation: true,
+        model_version: 'qwen2.5:1.5b',
+        latency_sec: 0.25,
+        eval_tokens_per_sec: 115.0,
+      };
+    }
+
+    return apiClient.post<DepartmentClassificationResponse>('/departments/recommend', payload);
   }
 }
 

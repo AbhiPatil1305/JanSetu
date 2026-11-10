@@ -1,4 +1,4 @@
-import { apiClient, USE_MOCK_API, delay } from './client';
+import { apiClient, USE_MOCK_API, delay, tokenStorage, API_BASE_URL } from './client';
 
 export type TranslationStatus =
   | 'PENDING'
@@ -27,6 +27,12 @@ export interface TranslationRecord {
   approved_by?: string | null;
   approved_at?: string | null;
   error_message?: string | null;
+  storage_path?: string | null;
+  checksum_sha256?: string | null;
+  pdf_storage_path?: string | null;
+  file_size?: number | null;
+  translated_document_id?: string | null;
+  download_url?: string | null;
 }
 
 export interface TranslationEngineStatus {
@@ -42,6 +48,7 @@ export interface TranslationEngineStatus {
   offline_available?: boolean;
   status: string;
   device: string;
+  device_name?: string | null;
 }
 
 export class TranslationsService {
@@ -231,6 +238,73 @@ export class TranslationsService {
       `/translations/${translationId}/approve`,
       {}
     );
+  }
+
+  /**
+   * Get direct download URL for approved translated document.
+   */
+  getDownloadUrl(translationId: string, format: 'txt' | 'pdf' = 'txt'): string {
+    return `/api/v1/translations/${translationId}/download?format=${format}`;
+  }
+
+  /**
+   * Download the approved translated document with file saving in browser.
+   */
+  async downloadApprovedTranslation(
+    translationId: string,
+    format: 'txt' | 'pdf' = 'txt',
+    filename?: string
+  ): Promise<void> {
+    if (USE_MOCK_API) {
+      await delay(100);
+      const blob = new Blob(
+        ['Official Verified Translation Document\nLanguage: English / Kannada'],
+        { type: format === 'pdf' ? 'application/pdf' : 'text/plain;charset=utf-8' }
+      );
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `approved_translation_${translationId}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      return;
+    }
+
+    const token = tokenStorage.getAccessToken();
+    const downloadEndpoint = `${API_BASE_URL}/translations/${translationId}/download?format=${format}`;
+    const response = await fetch(downloadEndpoint, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download failed with status ${response.status}`);
+    }
+
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (contentType.includes('text/html')) {
+      const htmlText = await response.text();
+      if (
+        htmlText.includes('<!doctype html') ||
+        htmlText.includes('/@vite/client') ||
+        htmlText.includes('<html')
+      ) {
+        throw new Error('Unexpected HTML response received instead of translation file.');
+      }
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || `approved_translation_${translationId}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
   }
 }
 

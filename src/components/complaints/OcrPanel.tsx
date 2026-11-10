@@ -19,9 +19,12 @@ import {
   Copy,
   Check,
   Sparkles,
+  Download,
+  Eye,
 } from 'lucide-react';
 import { Button } from '../common/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../common/Card';
+import { Modal } from '../common/Modal';
 import {
   documentsService,
   OcrStatus,
@@ -45,6 +48,7 @@ interface OcrPanelProps {
   onReviewedTextChange?: (text: string) => void;
   onSaveReviewedText?: (reviewedText: string) => Promise<void> | void;
   onTranslatedTextChange?: (text: string, targetLang: 'en' | 'kn') => void;
+  onCheckGrammar?: (text: string) => void;
 }
 
 const isKannadaText = (str: string): boolean => {
@@ -62,6 +66,7 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
   onReviewedTextChange,
   onSaveReviewedText,
   onTranslatedTextChange,
+  onCheckGrammar,
 }) => {
   // OCR state
   const [ocrStatus, setOcrStatus] = useState<OcrStatus>(
@@ -99,6 +104,24 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
   const [showHistory, setShowHistory] = useState<boolean>(false);
   const [isCopiedOriginal, setIsCopiedOriginal] = useState<boolean>(false);
   const [isCopiedTranslated, setIsCopiedTranslated] = useState<boolean>(false);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState<boolean>(false);
+  const [isDownloadingApproved, setIsDownloadingApproved] = useState<boolean>(false);
+
+  const handleDownloadApproved = async (format: 'txt' | 'pdf' = 'txt') => {
+    if (!activeTranslation) return;
+    setIsDownloadingApproved(true);
+    try {
+      await translationsService.downloadApprovedTranslation(
+        activeTranslation.id,
+        format,
+        `approved_translation_${activeTranslation.id}.${format}`
+      );
+    } catch (err: any) {
+      setTransErrorMessage('Failed to download document: ' + (err?.message || 'Network error'));
+    } finally {
+      setIsDownloadingApproved(false);
+    }
+  };
 
   // Auto-detect language when text arrives and no active translation has been set
   useEffect(() => {
@@ -539,6 +562,20 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             {renderOcrStatusBadge()}
 
+            {documentId && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  documentsService.downloadDocument(documentId, documentName || 'original_petition');
+                }}
+                leftIcon={<Download className="w-3.5 h-3.5 text-slate-600" />}
+                title="Download original citizen petition document"
+              >
+                Download Original
+              </Button>
+            )}
+
             <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs">
               <Globe className="w-3.5 h-3.5 text-slate-400" />
               <select
@@ -706,15 +743,29 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
               </button>
 
               {activeTextView === 'reviewed' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSaveReview}
-                  isLoading={isSavingReview}
-                  leftIcon={<Save className="w-3.5 h-3.5" />}
-                >
-                  Save
-                </Button>
+                <>
+                  {onCheckGrammar && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onCheckGrammar(localReviewedText || localRawText)}
+                      leftIcon={<Sparkles className="w-3.5 h-3.5 text-indigo-600" />}
+                      className="bg-indigo-50/80 border-indigo-200 text-indigo-800 hover:bg-indigo-100 font-semibold"
+                      title="Check spelling, grammar, and typography with local Qwen2.5 1.5B"
+                    >
+                      Check Grammar & Spelling
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveReview}
+                    isLoading={isSavingReview}
+                    leftIcon={<Save className="w-3.5 h-3.5" />}
+                  >
+                    Save
+                  </Button>
+                </>
               )}
             </div>
           </CardHeader>
@@ -748,6 +799,22 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
                   </span>
                   <span className="text-amber-800 font-medium">Human Verified Text</span>
                 </div>
+                {onCheckGrammar && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-lg text-xs mt-1">
+                    <div className="flex items-center gap-2 text-indigo-900 font-medium text-[11px]">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span>Verify spelling, Kannada typos, and grammar on OCR petition text.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onCheckGrammar(localReviewedText || localRawText)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Check Grammar & Spelling</span>
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex-1 flex flex-col space-y-2 min-h-[320px]">
@@ -801,7 +868,7 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
             </div>
 
             {/* Right actions */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {editableTranslatedText && (
                 <>
                   <button
@@ -816,6 +883,16 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
                       <Copy className="w-4 h-4" />
                     )}
                   </button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsPreviewModalOpen(true)}
+                    leftIcon={<Eye className="w-3.5 h-3.5 text-slate-600" />}
+                    title="Preview formatted official document"
+                  >
+                    Preview
+                  </Button>
 
                   <Button
                     variant="outline"
@@ -838,6 +915,31 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
                   >
                     {activeTranslation?.status === 'APPROVED' ? 'Approved' : 'Approve'}
                   </Button>
+
+                  {activeTranslation?.status === 'APPROVED' && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDownloadApproved('txt')}
+                        isLoading={isDownloadingApproved}
+                        leftIcon={<Download className="w-3.5 h-3.5 text-blue-600" />}
+                        title="Download approved UTF-8 text document"
+                      >
+                        Download (.txt)
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDownloadApproved('pdf')}
+                        isLoading={isDownloadingApproved}
+                        leftIcon={<Download className="w-3.5 h-3.5 text-rose-600" />}
+                        title="Download official PDF document with metadata"
+                      >
+                        Download PDF
+                      </Button>
+                    </>
+                  )}
                 </>
               )}
 
@@ -857,6 +959,57 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
           </CardHeader>
 
           <CardContent className="p-4 flex-1 flex flex-col space-y-3">
+            {/* Status Lifecycle Banner: Machine Generated vs Under Review vs Approved */}
+            {activeTranslation && (
+              <div
+                className={`p-2.5 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2 ${
+                  activeTranslation.status === 'APPROVED'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                    : activeTranslation.status === 'UNDER_REVIEW'
+                    ? 'bg-amber-50 border-amber-200 text-amber-950'
+                    : 'bg-blue-50 border-blue-200 text-blue-950'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {activeTranslation.status === 'APPROVED' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  ) : activeTranslation.status === 'UNDER_REVIEW' ? (
+                    <Edit3 className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  ) : (
+                    <Cpu className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                  )}
+                  <div>
+                    <span className="font-bold">
+                      {activeTranslation.status === 'APPROVED'
+                        ? 'Approved Official Record'
+                        : activeTranslation.status === 'UNDER_REVIEW'
+                        ? 'Under Review — Human Reviewer Rewritten Output'
+                        : 'Machine-Generated Output (Unverified)'}
+                    </span>
+                    {activeTranslation.status === 'APPROVED' && activeTranslation.checksum_sha256 && (
+                      <span className="block text-[10px] text-emerald-700 font-mono">
+                        SHA-256: {activeTranslation.checksum_sha256.substring(0, 16)}... &bull; File Stored Locally
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-[11px] font-medium">
+                  {activeTranslation.status === 'APPROVED' ? (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                      VERIFIED & ARCHIVED
+                    </span>
+                  ) : activeTranslation.status === 'UNDER_REVIEW' ? (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                      PENDING OFFICER APPROVAL
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-bold">
+                      DRAFT TRANSLATION
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
             {/* Local Offline Engine Status Indicator */}
             <div className="p-2.5 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2 bg-slate-50 border-slate-200">
               <div className="flex flex-wrap items-center gap-1.5">
@@ -870,8 +1023,19 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
                 <span className="font-semibold text-slate-800">
                   Local Neural Engine: {transEngineStatus?.provider_name || 'AI4Bharat IndicTrans2'}
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-medium">
-                  {transEngineStatus?.device || 'CPU'}
+                <span
+                  className={`text-[10px] px-2.5 py-0.5 rounded-full font-medium ${
+                    transEngineStatus?.device?.toUpperCase() === 'CUDA' || transEngineStatus?.device?.toUpperCase() === 'GPU'
+                      ? 'bg-purple-100 text-purple-800 border border-purple-300 shadow-sm'
+                      : 'bg-blue-100 text-blue-800'
+                  }`}
+                  title={transEngineStatus?.device_name ? `Hardware Accelerator: ${transEngineStatus.device_name}` : undefined}
+                >
+                  {transEngineStatus?.device?.toUpperCase() === 'CUDA' || transEngineStatus?.device?.toUpperCase() === 'GPU'
+                    ? transEngineStatus?.device_name
+                      ? `GPU: ${transEngineStatus.device_name}`
+                      : 'GPU (CUDA)'
+                    : transEngineStatus?.device || 'CPU'}
                 </span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3 text-emerald-700" />
@@ -982,6 +1146,94 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
           </CardContent>
         </Card>
       </div>
+
+      {/* Official Translated Document Preview Modal */}
+      <Modal
+        isOpen={isPreviewModalOpen}
+        onClose={() => setIsPreviewModalOpen(false)}
+        title="Official Translated Document Preview"
+        description="Authenticated JanSetu Grievance Redressal Record"
+        maxWidth="2xl"
+      >
+        <div className="space-y-4 text-slate-800">
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+            <div className="flex justify-between items-center text-xs text-slate-500 border-b border-slate-200 pb-2">
+              <span className="font-semibold text-slate-700">Government of Karnataka &bull; JanSetu</span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  activeTranslation?.status === 'APPROVED'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {activeTranslation?.status === 'APPROVED' ? 'OFFICIAL APPROVED RECORD' : 'REVIEW DRAFT'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs pt-1">
+              <div>
+                <span className="text-slate-400 block text-[10px] font-medium">ORIGINAL DOCUMENT</span>
+                <span className="font-semibold text-slate-800">{documentName || file?.name || 'Petition Document'}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] font-medium">LANGUAGE DIRECTION</span>
+                <span className="font-semibold text-slate-800">
+                  {sourceLang === 'kn' ? 'ಕನ್ನಡ (KN)' : 'English (EN)'} &rarr;{' '}
+                  {targetLang === 'kn' ? 'ಕನ್ನಡ (KN)' : 'English (EN)'}
+                </span>
+              </div>
+              {activeTranslation?.checksum_sha256 && (
+                <div className="col-span-2">
+                  <span className="text-slate-400 block text-[10px] font-medium">SHA-256 CHECKSUM</span>
+                  <span className="font-mono text-[10px] text-slate-600 break-all bg-white p-1 rounded border border-slate-200 block">
+                    {activeTranslation.checksum_sha256}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="p-4 bg-white border border-slate-200 rounded-xl max-h-[380px] overflow-y-auto shadow-inner">
+            <div
+              className={`whitespace-pre-wrap leading-relaxed text-xs text-slate-900 ${
+                targetLang === 'kn' ? 'font-kannada text-sm leading-relaxed' : 'font-sans'
+              }`}
+            >
+              {editableTranslatedText || 'No translated content available.'}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-slate-100">
+            <span className="text-[11px] text-slate-500">
+              Original document remains 100% byte-for-byte unchanged.
+            </span>
+            <div className="flex items-center gap-2">
+              {activeTranslation?.status === 'APPROVED' && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownloadApproved('txt')}
+                    leftIcon={<Download className="w-3.5 h-3.5" />}
+                  >
+                    Download (.txt)
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleDownloadApproved('pdf')}
+                    leftIcon={<Download className="w-3.5 h-3.5" />}
+                  >
+                    Download PDF
+                  </Button>
+                </>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setIsPreviewModalOpen(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
